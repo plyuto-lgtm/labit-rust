@@ -66,7 +66,7 @@ const options = {
 // version covers them (widgetRev in local.mjs), so a change to one reloads open pages too.
 // boardview is the one board: a view over the page that links it, and the board's own page (/_lab/board/<name>) loads
 // the same file.
-const PARTS = { components: 'src/widget/components.ts', switcher: 'src/widget/switcher.ts', draw: 'src/widget/draw.ts', sections: 'src/widget/sections.ts', motion: 'src/widget/motion.ts', boardview: 'src/board/overlay.ts', pics: 'src/widget/pics.ts' };
+const PARTS = { components: 'src/widget/components.ts', switcher: 'src/widget/switcher.ts', draw: 'src/widget/draw.ts', sections: 'src/widget/sections.ts', motion: 'src/widget/motion.ts', boardview: 'src/board/overlay.ts', pics: 'src/widget/pics.ts', attach: 'src/widget/attach.ts' };
 const builds = [
   options,
   ...Object.entries(PARTS).map(([name, entry]) => ({ ...options, entryPoints: [entry], format: 'esm', outfile: path.join(path.dirname(outfile), `${name}.js`) })),

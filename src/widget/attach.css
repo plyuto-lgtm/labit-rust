@@ -1,0 +1,8 @@
+/* The pictures of a comment (attach.ts): the strip above a box that holds some, and a message's thumbnails. */
+.atts { display: flex; gap: 6px; flex-wrap: wrap; padding: 6px 8px 0; }
+.atts .p { position: relative; }
+.atts img { display: block; height: 48px; max-width: 96px; object-fit: cover; border-radius: var(--_r-s); }
+.atts .p.bad img { opacity: .35; }
+.atts .x { position: absolute; top: -6px; right: -6px; width: 18px; height: 18px; padding: 0; border: 0; border-radius: 50%; font-size: 12px; line-height: 18px; cursor: pointer; background: var(--_fg); color: var(--_bg); }
+.att { display: block; margin: 6px 0 14px; } /* room under it for the time stamp the bubble draws at its bottom right */
+.att img { display: block; max-width: 160px; max-height: 120px; border-radius: var(--_r-s); object-fit: cover; }

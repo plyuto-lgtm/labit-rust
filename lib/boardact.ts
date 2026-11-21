@@ -3,7 +3,7 @@
 import fs from 'node:fs';
 import path from 'node:path';
 import { imageInfo, MAX_IMAGE } from './images.mjs';
-import { MAX_FRAMES, NAME, addImage, counted, heightFor, nextId, labPath, names, nameOf, one, read, save, frameFile, writeAtomic, type Board, type Frame } from './board.ts';
+import { MAX_FRAMES, NAME, addImage, counted, heightFor, insert, nextId, labPath, names, nameOf, one, read, save, frameFile, writeAtomic, type Board, type Frame } from './board.ts';
 
 export const MAX_VARIANTS = 6;
 /** The query parameter that tells a live page which variant it is drawing (boards of a page that cannot be copied). */
@@ -26,6 +26,8 @@ export const seed = (html: string, rel: string) => {
 // ---------- what an agent reads ----------
 /** What a frame is called to an agent: a picture says its file, a copy its .html, a page its path. */
 export const shown = (b: Board, f: Frame) => (f.kind === 'image' ? `pasted image .lab/boards/${b.name}/${f.file}${f.guest ? ' from a wifi guest' : ''}` : f.src.startsWith('/_lab/') ? `${f.id}.html` : f.src);
+/** A frame's size: a picture says its file's own pixels first. */
+export const sized = (f: Frame) => `${f.kind === 'image' ? `${f.iw}×${f.ih} px shown at ` : ''}${f.w}×${f.h}`;
 /** Where a board is opened: over its page when it is about one this lab has (one set of pins, the page's), else at its own address. */
 export const where = (origin: string, b: Board, home?: boolean) => (home && b.of ? `${origin}${b.of.split('#')[0]}#board=${b.name}` : `${origin}/_lab/board/${b.name}`);
 /** The board as plain text: one line per frame, in order. `pins(frame)` is its open pins. */
@@ -45,7 +47,7 @@ export function text(b: Board, o: { origin: string; file?: string | null; json?:
 export const frameLine = (b: Board, f: Frame, file?: string | null) => {
   const beside = b.frames.filter((g) => g.id !== f.id && g.state !== 'archived').map((g) => g.id);
   const gone = b.frames.filter((g) => g.state === 'archived').map((g) => g.id);
-  const line = `frame: ${f.id} of board ${b.name} (${[b.of && `variant of ${b.of.replace('#', ' #')}`, f.kind === 'image' ? `${f.iw}×${f.ih} px shown at ${f.w}×${f.h}` : `${f.w}×${f.h}`, f.guest && 'from a wifi guest', f.label && `"${f.label}"`, beside.length && `beside ${beside.slice(0, 6).join(', ')}`].filter(Boolean).join(', ')})`;
+  const line = `frame: ${f.id} of board ${b.name} (${[b.of && `variant of ${b.of.replace('#', ' #')}`, sized(f), f.guest && 'from a wifi guest', f.state === 'archived' && 'archived', f.label && `"${f.label}"`, beside.length && `beside ${beside.slice(0, 6).join(', ')}`].filter(Boolean).join(', ')})`;
   const copy = (g: Frame) => g.src.startsWith('/_lab/') && g.kind !== 'image';
   const others = b.frames.filter((g) => g.id !== f.id);
   const page = file || b.of?.split('#')[0] || 'the page';
@@ -73,10 +75,6 @@ export type Done = { text: string; board?: Board; picked?: Frame; error?: string
 
 const no = (error: string): Done => ({ text: error, error });
 const frameOf = (b: Board, id: unknown) => b.frames.find((f) => f.id === id);
-const insert = (b: Board, f: Frame, after?: string) => {
-  const at = after ? b.frames.findIndex((g) => g.id === after) : -1;
-  b.frames.splice(at < 0 ? b.frames.length : at + 1, 0, f);
-};
 const copyIn = (e: Env, name: string, id: string, html: string) => writeAtomic(frameFile(e.root, name, id), html);
 
 /** One command's work (new, add, move, pick) on the stored board; the answer is what the agent reads. */
@@ -91,6 +89,9 @@ export function act(action: string, a: Ask, e: Env): Done {
     const topic = one(a.topic, 80);
     const name = a.name || (a.of && !topic ? nameOf(a.of.split('#')[0]) : slug(topic));
     if (!NAME.test(name)) return no('Give the board a topic: labit board new "Pricing hero" --of /pricing --variants 3');
+    // A board asked for by its name (a pin's own, made from its card) that is already there is that board, never a new one over it.
+    const had = a.name ? read(e.root, a.name) : null;
+    if (had) return { text: view(had, had.of ? e.fileOf(had.of.split('#')[0]) : null), board: had };
     let into = name;
     for (let n = 2; read(e.root, into) && !a.name; n++) into = `${name}-${n}`;
     const of = a.of ? one(a.of, 200) : '';

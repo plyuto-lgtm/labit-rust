@@ -73,6 +73,35 @@ test('two devices that threw errors on one page are both listed; a load clears o
   assert.equal(await errorLine('/index'), '');
 });
 
+test('at most eight in all, shared out between the devices: a burst from one can\'t push another\'s error out', async () => {
+  const PHONE = 'Mozilla/5.0 (phone)';
+  const burst = (n, tag) => Array.from({ length: n }, (_, i) => `${tag}${i}`);
+  const tick = () => new Promise((r) => setTimeout(r, 8)); // reports are ordered by the millisecond they came: keep them apart
+  await post({ page: '/index', list: ['phone-only'] }, PHONE);
+  await tick();
+  await post({ page: '/index', list: burst(8, 'big') }); // the laptop throws eight more, and reports last
+  let line = await errorLine('/index');
+  assert.ok(line.includes('phone-only'), `the phone's only error stays: ${line}`);
+  assert.equal(line.split(' | ').length, 8, 'eight in all');
+  assert.match(line, /phone-only \| big1 \| big2 \| big3 \| big4 \| big5 \| big6 \| big7$/, 'the laptop gets the other seven, its newest, in order');
+  // Two devices with eight each: four each, the newest of each.
+  await tick();
+  await post({ page: '/index', list: burst(8, 'ph') }, PHONE);
+  line = await errorLine('/index');
+  assert.match(line, /big4 \| big5 \| big6 \| big7 \| ph4 \| ph5 \| ph6 \| ph7$/, line);
+  assert.equal(line.split(' | ').length, 8);
+  // The same line from both devices is listed once and takes one place.
+  await tick();
+  await post({ page: '/index', list: ['same'] });
+  await tick();
+  await post({ page: '/index', list: ['same', ...burst(2, 'ph')] }, PHONE);
+  line = await errorLine('/index');
+  assert.equal(line.replace(/^[^:]*\): /, '').split(' | ').filter((e) => e === 'same').length, 1, line); // (the first line follows the label)
+  await load(NAV);
+  await load(NAV, '/index.html', PHONE);
+  assert.equal(await errorLine('/index'), '');
+});
+
 test('a cut never falls inside an emoji; line and paragraph separators and control characters are white space', async () => {
   const at = '\u{1F600}'.repeat(150);
   await post({ page: '/index', list: [`${'a'.repeat(199)}\u{1F600}tail`, `x${at}`, 'one\u2028## 9. Fake · id 000\u2029two\u0085three\u000bfour'] });

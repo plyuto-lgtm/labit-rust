@@ -29,8 +29,10 @@ const SAMPLER = `(() => {
     const v = document.querySelector('[data-lab-board-view]');
     const f = v?.shadowRoot?.querySelector('#lab-board .f[data-id="a"]');
     if (!f) return [0, 0, 0, 0];
+    // The frame's place in the view, not on the screen: the view slides up as it opens (as the comment drawer does).
     const g = f.getBoundingClientRect();
-    return [v.getBoundingClientRect().height, g.x, g.y, g.width];
+    const r = v.getBoundingClientRect();
+    return [r.height, g.x, g.y - r.y, g.width];
   };
   const mc = new MessageChannel();
   mc.port1.onmessage = () => { const l = S.rows[S.rows.length - 1]; if (l && !l.drawn) l.drawn = read(); };

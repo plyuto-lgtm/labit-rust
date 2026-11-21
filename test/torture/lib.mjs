@@ -358,6 +358,10 @@ const FETCHED = /\.(json|wasm|csv|tsv|xml|txt|map|woff2?)$/i;
 // fix/torture-all) or the OLD one (TORTURE_WIDGET=old), so the same harness is a before/after baseline. Read at each
 // use, so a run can set it before it starts. The rules that differ are marked "fixed:" / "old:" below.
 export const widgetFixed = () => process.env.TORTURE_WIDGET !== 'old';
+// The device asks "changes since" one at a time, in the order asked (src/comments.js loadChanges does too), so a newer answer
+// can't be overtaken on the way and then overwritten by an older one (wifi). TORTURE_SERIAL_CHANGES=0 asks them all at
+// once and applies each answer as it arrives (how the widget did before): a run with it shows what the serial asking fixes.
+const SERIAL_CHANGES = process.env.TORTURE_SERIAL_CHANGES !== '0';
 const tidy = (u) => {
   const t = decodeURIComponent(u).replace(/\/index\.html?$/i, '/').replace(/\.html?$/i, '');
   return widgetFixed() ? t.toLowerCase() : t; // fixed: a page opened in another letter case is the same page
@@ -734,7 +738,11 @@ export class Device {
       this.note('load failed', e.message); // keeps what is already on screen
     }
   }
-  async loadChanges(since) {
+  loadChanges(since) {
+    if (!SERIAL_CHANGES) return this.changesSince(since);
+    return (this.changesChain = (this.changesChain || Promise.resolve()).then(() => this.changesSince(since)));
+  }
+  async changesSince(since) {
     try {
       this.asked = [...(this.asked || []).slice(-5), since]; // the versions it last asked the changes since
       const r = await this.ask({ path: `/_lab/api/changes?${new URLSearchParams({ page: this.attrs.page, since: String(since) })}` });

@@ -63,19 +63,29 @@ const letterAt = (x: number, y: number) => {
   const d = document as Document & { caretPositionFromPoint?: (x: number, y: number) => { offsetNode: Node; offset: number } | null };
   let n: Node | undefined;
   let o = 0;
+  // An earlier drawing's line (28 px of it answers the pointer) would be what the browser finds under the point: while
+  // the page is asked, those are let through (styles.css, :host([data-lab-probe])).
+  const host = document.querySelector('[data-lab-comments]');
+  host?.setAttribute('data-lab-probe', '');
   const p = d.caretPositionFromPoint?.(x, y);
   if (p) [n, o] = [p.offsetNode, p.offset];
   else {
     const r = document.caretRangeFromPoint?.(x, y);
     if (r) [n, o] = [r.startContainer, r.startOffset];
   }
+  host?.removeAttribute('data-lab-probe');
   if (!(n instanceof Text) || !n.length) return null;
-  const r = document.createRange();
-  o = Math.min(o, n.length - 1);
-  r.setStart(n, o);
-  r.setEnd(n, o + 1);
-  const b = r.getBoundingClientRect();
-  return b.height && x >= b.left - 3 && x <= b.right + 3 && y >= b.top && y <= b.bottom ? b : null;
+  // The caret stands at the nearer edge of a letter: on the far half of a wide one (a CJK letter, an emoji) it is the next
+  // letter's edge, so the letter before it is read too.
+  for (const at of [Math.min(o, n.length - 1), o - 1]) {
+    if (at < 0) continue;
+    const r = document.createRange();
+    r.setStart(n, at);
+    r.setEnd(n, at + 1);
+    const b = r.getBoundingClientRect();
+    if (b.height && x >= b.left - 3 && x <= b.right + 3 && y >= b.top && y <= b.bottom) return b;
+  }
+  return null;
 };
 
 // How often a line turns back across (left to right, then right to left): a wave goes one way, a scribble back and forth.

@@ -29,6 +29,8 @@ keep('/_board/withpage', pin('b1', 'withpage', 1), pin('b2', 'withpage', 2), { i
 keep('/pricing', { id: 'p1', name: 'Leo', text: 'a page pin', createdAt: '2026-11-09T10:00:00.000Z', num: 1, anchor: { kind: 'element', selector: 'h1', x: 0.5, y: 0.5 } });
 keep('/_board/nopage', pin('n1', 'nopage', 1));
 keep('/_board/gone', pin('g1', 'gone', 1));
+// …and a person had read both pins there: on the page they are read too (the page is not unread on every device).
+write('.lab/state.json', { reads: { leo: { '/_board/withpage': ['b1', 'b2', 'r1'] } }, opened: { '/_board/withpage': '2026-11-14T10:00:00.000Z' } });
 const bak = path.join(DIR, `${file('/_board/withpage')}.bak-board`);
 const ownFile = path.join(DIR, file('/_board/withpage'));
 const held = () => { const b = JSON.parse(fs.readFileSync(bak, 'utf8')); return [b.page, Object.entries(b.comments).map(([id, c]) => [id, c.text, c.parent, c.num]).sort()]; };
@@ -66,6 +68,9 @@ test('the pins left on the old address are on the page now: ids, thread and repl
   assert.deepEqual([root('b1').anchor.fx, root('b2').anchor.fx], [10, 20]);
   assert.deepEqual(['p1', 'b1', 'b2'].map((id) => root(id).num), [1, 2, 3]);
   assert.deepEqual(await list('/_board/withpage'), [], 'nothing is left on the old address');
+  const read = async (pg) => (await (await fetch(`${B}/_lab/api/reads?name=Leo&page=${pg}`)).json()).ids || [];
+  assert.deepEqual([...(await read('/pricing'))].sort(), ['b1', 'b2', 'r1'], 'what was read there is read on the page');
+  assert.deepEqual(await read('/_board/withpage'), [], 'and nothing is left on the old key');
   assert.equal(fs.existsSync(ownFile), false);
 });
 

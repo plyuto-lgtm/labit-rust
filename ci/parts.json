@@ -3,6 +3,7 @@
   "modules": {
     "anchoring.ts": "where a pin sits on the page and how it finds its spot again",
     "boardcam.ts": "a board in the page: showing it, a tap on it that closes a comment, its camera moving the pins with it, and the page's pins hiding under its view",
+    "sheetmove.ts": "how a drawer moves under a finger and after it lets go (glide, carry, the throw that closes it): the comment drawers (sheets.ts) and the board drawer (src/board/overlay.ts) share it",
     "chat.ts": "the chat sheet",
     "components.ts": "which component drew an element (React, Vue, Svelte), for a pin; its own file (public/_lab/components.js), loaded only on a page a framework drew",
     "composer.ts": "the text box for a comment or a reply, and its send button",
@@ -20,6 +21,8 @@
     "motion.ts": "pause and ¼ speed for what moves on the page (videos, animations), the controls beside each, and a pin's moment on it; its own file (public/_lab/motion.js), loaded once the page has something that moves, ⌥ is held, P or S is pressed, or a comment has a moment",
     "motion.css": "the styles of motion.ts, which brings them with it",
     "actions.ts": "action buttons: a data-lab-action element on the page opens a comment with its words, the agent acts on it",
+    "attach.ts": "the pictures of a comment: the strip above a box that holds some (paste, drop, ✕), the send with their tokens, and a message's thumbnails; its own file (public/_lab/attach.js), loaded when a picture comes or a message has one",
+    "attach.css": "the styles of attach.ts, which brings them with it",
     "pics.ts": "a picture made ready to send (the board's paste and a comment's attachment): kept as it is when small, else drawn smaller and encoded again; its own file (public/_lab/pics.js), loaded the first time a picture is put in",
     "sections.ts": "the section bar: each section with a heading, current one filled, new and updated marked, read kept per person in the lab; its own file (public/_lab/sections.js), loaded when the page may show the bar",
     "sections.css": "the styles of sections.ts, which brings them with it",
@@ -88,7 +91,7 @@
     },
     "code": {
       "anchoring.ts: rgb(1, 2, 3)": "a sentinel colour to tell whether the page set one, never drawn",
-      "sheets.ts: cubic-bezier(": "a sheet let go carries on at the speed it had: the curve is worked out from that speed and the way left (docs/motion.md), so no token can hold it",
+      "sheetmove.ts: cubic-bezier(": "a sheet let go carries on at the speed it had: the curve is worked out from that speed and the way left (docs/motion.md), so no token can hold it",
       "comments.js: rgba(52, 199, 89, .3)": "the selection highlight, drawn in the page document where the widget tokens are not"
     }
   }

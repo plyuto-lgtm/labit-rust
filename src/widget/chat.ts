@@ -94,6 +94,7 @@ export function drawChat() {
       b.append(q);
     }
     b.append(...W.readable(m.text));
+    if (m.images) W.part('attach').then((a) => a.show(b.appendChild(W.el('div')), m)); // pictures, as in a thread (thread.ts)
     // The agent's question with choices: its rows under it, as in a thread's card (thread.ts), nothing tried in the page.
     if (m.session && Array.isArray(m.choices) && m.choices.length && root) {
       b.classList.add('asks');
@@ -117,8 +118,9 @@ export function drawChat() {
       W.composer({
         placeholder: 'message',
         draftKey: `lab-typing:${W.S.page}:chat`,
-        onSubmit: async (name, text) => {
-          const { comment } = await W.send({ name, text, anchor: { kind: 'page', width: innerWidth, height: innerHeight, dpr: devicePixelRatio || 1 } });
+        attach: true,
+        onSubmit: async (name, text, att) => {
+          const { comment } = await W.send({ name, text, ...att, anchor: { kind: 'page', width: innerWidth, height: innerHeight, dpr: devicePixelRatio || 1 } });
           W.addComment(comment);
           W.markSeen([comment]);
           box.scrollTop = box.scrollHeight;

@@ -13,6 +13,8 @@ type Deps = {
   rememberMe: (name: string) => void;
   /** Called as boxes fill and empty, so the page's own pointer can come back while you write. */
   whileWriting?: () => void;
+  /** A part of the widget loaded when first used (attach: pictures in a comment). */
+  part: (name: string) => Promise<any>;
 };
 
 // Set once by the widget at startup (bindComposer), so importing this module touches nothing.
@@ -28,11 +30,15 @@ const writing = new Set<HTMLTextAreaElement>();
 // Drafts whose words are on their way to the lab. A box rebuilt while one is in flight (the widget redraws as the
 // comment lands) must not read them back in, and must not lose them either if the send fails.
 const sending = new Set<string>();
+// The pictures of a box, kept by its draft key as its words are: the widget draws its boxes again (a comment comes in, a
+// click outside, a thread opened again) and the new box has them still, until the comment goes. The attach part fills
+// and empties a list (attach.ts); here only its length is read.
+const kept: Record<string, unknown[]> = {};
 /** True while any box on the page holds words nobody has sent. A box that has left the page doesn't count, even before
  *  it has let go of its hold: a stale entry used to keep comment mode off (the page's own pointer) until the page next changed. */
 export const anyWriting = () => [...writing].some((t) => t.isConnected);
-const saysWriting = (field: HTMLTextAreaElement) => {
-  if (field.value.trim()) writing.add(field);
+const saysWriting = (field: HTMLTextAreaElement, pics = 0) => {
+  if (field.value.trim() || pics) writing.add(field);
   else writing.delete(field);
   holdReloads(writing.size);
   d?.whileWriting?.(); // the page's own pointer comes back while you are writing (comments.js)
@@ -73,11 +79,13 @@ const tidy = (v: string) =>
 // empty: what an empty box sends; nameFirst: the cursor goes to the name. Both for a "go" comment from someone with no name
 // yet: the "go" is implied, only the name is missing (guests, Leo 16 Nov: go opened the full comment box).
 // opened: the box is open from the start (selected words' dialog and sheet: "comment preopened", Leo 18 Nov).
-export function composer({ placeholder, onSubmit, autofocus = false, opened = false, draftKey = '', empty = '' }: {
+export function composer({ placeholder, onSubmit, autofocus = false, opened = false, draftKey = '', empty = '', attach = false }: {
   placeholder: string;
   // Sent when nothing is typed (a drawing: what it reads as). Without it, an empty box doesn't send.
   empty?: string;
-  onSubmit: (name: string, text: string) => Promise<unknown>;
+  onSubmit: (name: string, text: string, att?: { attachments: string[] }) => Promise<unknown>;
+  /** A pasted or dropped picture goes with the comment (the new pin's box and a thread's reply; not the chat). */
+  attach?: boolean;
   autofocus?: boolean;
   opened?: boolean;
   /** Where to keep what is typed but not sent, so a page that reloads under you (a dev server rebuilding,
@@ -86,6 +94,7 @@ export function composer({ placeholder, onSubmit, autofocus = false, opened = fa
 }): HTMLElement {
   const { el, store, root, refreshPinCursor, syncReads, rememberMe } = d;
   const wrap = el('div', { class: 'composer' });
+  const pics = (kept[draftKey] ||= []);
   const box = el('div', { class: 'box' });
   // No autofill or suggestion bar on phones: a comment isn't a form to fill.
   const text = el('textarea', { placeholder, maxlength: '2000', rows: '1', 'aria-label': placeholder, enterkeyhint: 'send', autocomplete: 'off', autocorrect: 'off', spellcheck: 'false', writingsuggestions: 'false' }) as HTMLTextAreaElement;
@@ -120,7 +129,11 @@ export function composer({ placeholder, onSubmit, autofocus = false, opened = fa
   sendBtn.addEventListener('mousedown', (e) => e.preventDefault());
   sendBtn.innerHTML = ARROW;
   const error = el('div', { class: 'error' });
-  box.append(text, el('div', { class: 'line' }), who, sendBtn);
+  // "+" (a picture) sits beside the send arrow, in the same cell: the box is no taller for it.
+  const clip = attach ? el('button', { class: 'clip', type: 'button', 'aria-label': 'add a picture', title: 'add a picture' }, '+') : null;
+  const tail = clip ? el('div', { class: 'act' }) : sendBtn;
+  if (clip) tail.append(clip, sendBtn);
+  box.append(text, el('div', { class: 'line' }), who, tail);
   wrap.append(box, error);
   // The box is taller than its one line of text: a tap anywhere on it (not the name or send) puts the cursor in, at the end.
   box.addEventListener('click', (e) => {
@@ -153,8 +166,8 @@ export function composer({ placeholder, onSubmit, autofocus = false, opened = fa
     box.classList.toggle('one', one);
     box.classList.toggle('open', open);
     as.hidden = !name.value.trim();
-    sendBtn.classList.toggle('ready', Boolean((text.value.trim() || empty) && name.value.trim()));
-    saysWriting(text); // a box built with words already in it (a kept draft, a redraw) counts too
+    sendBtn.classList.toggle('ready', Boolean((text.value.trim() || empty || pics.length) && name.value.trim()));
+    saysWriting(text, pics.length); // a box built with words already in it (a kept draft, a redraw) counts too
     // The box grows with its words by itself (field-sizing, styles.css).
     // Once the words scroll, the box goes to the wide layout (name and arrow on a row of their own) so the scrollbar sits at
     // the box's right edge, not left of the name; it stays wide until the words are clearly shorter (no flapping at the edge).
@@ -185,7 +198,7 @@ export function composer({ placeholder, onSubmit, autofocus = false, opened = fa
   const go = async () => {
     if (busy) return;
     const said = tidy(text.value) || empty;
-    if (!said) return text.focus();
+    if (!said && !pics.length) return text.focus();
     if (!name.value.trim()) {
       box.classList.add('open');
       return name.focus();
@@ -210,7 +223,8 @@ export function composer({ placeholder, onSubmit, autofocus = false, opened = fa
       error.classList.add('wait');
     }, 1500);
     try {
-      const result = (await onSubmit(name.value.trim(), said)) as { keep?: boolean } | undefined;
+      const sent = onSubmit.bind(null, name.value.trim(), said);
+      const result = (await (pics.length ? d.part('attach').then((m) => m.send(wrap, pics, sent)) : sent())) as { keep?: boolean } | undefined;
       // It went: the kept draft goes with it.
       dropDraft();
       if (draftKey) sending.delete(draftKey);
@@ -239,6 +253,27 @@ export function composer({ placeholder, onSubmit, autofocus = false, opened = fa
       go();
     }
   };
+  if (attach) {
+    // "+": a phone has no paste or drop. The file input is made here, not in the part: Safari opens the picker only
+    // from the tap itself.
+    const file = el('input', { type: 'file', accept: 'image/*', multiple: '', hidden: '' }) as HTMLInputElement;
+    clip!.addEventListener('mousedown', (e) => e.preventDefault()); // the cursor stays in the box
+    clip!.addEventListener('click', () => file.click());
+    // A pasted, dropped or picked picture: kept for the comment, by the attach part (its words, if the clipboard had any, go
+    // in at the cursor). A paste or a drop brings only its images; what the picker gave goes as it is (the part says if it can't show it).
+    const pic = (e: ClipboardEvent & DragEvent) => {
+      const dt = e.clipboardData || e.dataTransfer;
+      const files = [...((dt || file).files || [])].filter((f) => !dt || f.type.startsWith('image/'));
+      file.value = ''; // (the same file can be picked again)
+      if (dt?.types.includes('Files')) e.preventDefault(); // a file dropped here is ours, never the browser's (it would leave the page for it)
+      const words = e.clipboardData?.getData('text'); // read now: the clipboard is closed once this event is over (the part loads later)
+      if (e.type !== 'dragover' && files.length) void d.part('attach').then((m) => m.add(wrap, pics, files, words));
+    };
+    wrap.addEventListener('paste', pic as EventListener); // the name field too
+    for (const t of ['dragover', 'drop', 'change']) wrap.addEventListener(t, pic as EventListener); // anywhere on the card of the box, the strip too; change: the picker's
+    wrap.append(file);
+    if (pics.length) void d.part('attach').then((m) => m.restore(wrap, pics)); // kept pictures: put back as this box shows
+  }
   text.addEventListener('input', sync);
   text.addEventListener('input', keepDraft);
   // A box taken off the page (a card closing, a redraw) lets go of its hold; its words are kept (see sweep).

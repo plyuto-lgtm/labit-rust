@@ -25,6 +25,17 @@ const pages = (n) => {
   // A page that is patched in place under a cross-fade of a second (slower than the widget's own, so a click lands inside it).
   fade(n, 'Below.');
   // An emoji across the place a value (60) and the words (80) are cut.
+  // An Astro dev page: the served HTML has data-astro-source-file / -loc on its elements, and the dev toolbar takes them off once
+  // the page is up (astro 7.4.13, dev-toolbar/apps/audit/annotations.js), also off an element added later. Its file is in the project.
+  const eng = n.slice(1);
+  const at = (loc) => `data-astro-source-file="/home/me/site/src/pages/${eng}.astro" data-astro-source-loc="${loc}"`;
+  fs.mkdirSync(path.join(DIR, 'src/pages'), { recursive: true });
+  fs.writeFileSync(path.join(DIR, `src/pages/${eng}.astro`), ['---', '---', '<main>', '  <h1>Astro page</h1>', '  <p>First astro paragraph words</p>', '  <p>Second astro paragraph words</p>', '</main>', ''].join('\n'));
+  page(`astro${n}`, `<h1 ${at('4:3')}>Astro page</h1><p ${at('5:3')}>First astro paragraph words</p><p ${at('6:3')} id="second">Second astro paragraph words</p><div id="more"></div><script>
+    const strip = () => document.querySelectorAll('[data-astro-source-file]').forEach((e) => { e.removeAttribute('data-astro-source-file'); e.removeAttribute('data-astro-source-loc'); });
+    addEventListener('load', () => setTimeout(strip, 300));
+    setTimeout(() => { more.innerHTML = '<p id="late" ${at('5:3')}>First astro paragraph words</p>'; setTimeout(strip, 200); }, 1500);
+  </script>`);
   page(`emoji${n}`, `<h1>Emoji</h1><p id="e" data-note="${'a'.repeat(59)}😀 tail">${'x'.repeat(79)}😀 and more words after</p>`);
 };
 const fade = (n, below) => page(`fade${n}`, `<h1>Fade</h1><button id="go" style="position:absolute;left:30px;top:80px;width:240px;height:40px">Target button</button><p style="margin-top:160px">${below}</p>`, '::view-transition-group(root){animation-duration:1s}');
@@ -150,6 +161,29 @@ try {
       const text = await agent(`emoji${n}`);
       check(eng, 'an attribute value cut at 60 and the words cut at 80 hold no half an emoji', Boolean(em) && !broken(em.anchor.element) && !broken(em.anchor.text || '') && !broken(text), JSON.stringify([em?.anchor?.element?.slice(-30), em?.anchor?.text?.slice(-6)]));
       check(eng, 'the words kept are the ones before the emoji', Boolean(em) && em.anchor.element.includes(`data-note="${'a'.repeat(59)}"`) && em.anchor.text === 'x'.repeat(79), `${em?.anchor?.text?.length}`);
+
+      // 6. Astro's dev toolbar takes data-astro-source-* off the elements after load: a pin still names the source, and the
+      // agent's text checks the line against the file when it is read (what moved is said, nothing is guessed).
+      await p.goto(`${B}/astro${n}`);
+      await ready();
+      await p.waitForFunction(() => document.querySelector('#late') && !document.querySelector('[data-astro-source-file]'), null, { timeout: 8000 }).catch(() => {});
+      const gone = await p.evaluate(() => !document.querySelector('[data-astro-source-file], [data-astro-source-loc]'));
+      check(eng, 'the toolbar mimic took the source attributes off every element, also the one added later (the checks below mean something)', gone);
+      const file = `src/pages/${eng}.astro`;
+      const written = async () => (await agent(`astro${n}`)).match(/^written at: .*$/gm) || [];
+      const astro = await pin(`astro${n}`, ...(await centre('#second')), 'astro pin');
+      check(eng, 'a pin on an Astro element names its file and line after the toolbar took the attributes off', astro?.anchor?.source === `${file}:6:3`, JSON.stringify(astro?.anchor?.source));
+      const late = await pin(`astro${n}`, ...(await centre('#late')), 'astro late pin');
+      check(eng, 'also an element added after the page loaded (its attributes taken off a moment later)', late?.anchor?.source === `${file}:5:3`, JSON.stringify(late?.anchor?.source));
+      const body = (lines, second = true) => ['---', '---', ...lines, '<main>', '  <h1>Astro page</h1>', '  <p>First astro paragraph words</p>', ...(second ? ['  <p>Second astro paragraph words</p>'] : []), '</main>', ''].join('\n');
+      const now = await written();
+      check(eng, 'the agent\'s text has both lines, checked against the file: right now, said as they are', now.length === 2 && now[0] === `written at: ${file}:6:3` && now[1] === `written at: ${file}:5:3`, JSON.stringify(now));
+      fs.writeFileSync(path.join(DIR, file), body(['// one', '// two']));
+      const moved = await written();
+      check(eng, 'two lines put above: the text names the line each is on now, and the line the pin recorded', moved[0]?.startsWith(`written at: ${file}:8 (the pin recorded line 6,`) && moved[1]?.startsWith(`written at: ${file}:7 (the pin recorded line 5,`), JSON.stringify(moved));
+      fs.writeFileSync(path.join(DIR, file), body([], false));
+      const gonel = await written();
+      check(eng, 'the element taken out of the file: no line is named, it says it was not found again', gonel[0]?.startsWith(`written at: ${file} (the pin recorded line 6;`) && /not found again/.test(gonel[0]) && gonel[1] === `written at: ${file}:5:3`, JSON.stringify(gonel));
       await p.goto('about:blank');
       await ctx.close();
     } finally {

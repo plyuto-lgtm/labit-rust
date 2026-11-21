@@ -143,6 +143,38 @@ try {
       check(eng, 'a reply the stream brought before the POST answered shows once', bubbles === 1, `${bubbles} bubbles`);
       await ctx4.close();
 
+      // ---- two "changes since" answers reaching the page the wrong way round (wifi): the newer state stays ----
+      // Another client resolves a pin, then opens it again. The page asks twice (once per message); the first answer comes
+      // late, the second at once. The pin is open in the lab and must be shown open, not resolved by the late, older answer.
+      const ctx5 = await browser.newContext({ viewport: { width: 1000, height: 700 } });
+      await ctx5.addInitScript(() => localStorage.setItem('lab-name', 'leo'));
+      const p5 = await ctx5.newPage();
+      let asked = 0;
+      await p5.route('**/_lab/api/changes?*', async (route) => {
+        const res = await route.fetch();
+        if (++asked === 1) await sleep(600);
+        await route.fulfill({ response: res }).catch(() => {});
+      });
+      const key = /data-admin="([^"]*)"/.exec(await fetch(B + '/').then((r) => r.text()))?.[1] ?? '';
+      const act = (body) => fetch(B + '/_lab/api/comments', { method: 'POST', headers: { 'content-type': 'application/json', origin: B, 'x-lab-admin': key }, body: JSON.stringify({ page: '/index', ...body }) }).then((r) => r.json());
+      const { comment: flip } = await post(`resolved then reopened in ${eng}`);
+      await p5.goto(B + '/');
+      await until(async () => (await pinsOf(p5)) > 0);
+      await sleep(1500); // the page has settled: its stream has said its first message
+      // A resolved pin is gone from the page, or stays with "done" in its label (a thread being read keeps its pin).
+      const openPins = (t) => t.evaluate(() => [...document.querySelectorAll('*')].find((n) => n.shadowRoot?.querySelector('.scrim'))?.shadowRoot.querySelectorAll('button.pin:not([aria-label*=", done"])').length ?? -1);
+      const shown0 = await openPins(p5);
+      asked = 0;
+      await act({ action: 'resolve', id: flip.id });
+      await sleep(150);
+      await act({ action: 'reopen', id: flip.id });
+      await until(async () => asked >= 2, 3000);
+      await sleep(1500); // the late first answer has come by now
+      check(eng, 'changes answers arriving the wrong way round: the pin reopened last is shown open', asked >= 2 && (await openPins(p5)) === shown0, `asked ${asked}, open pins ${shown0} → ${await openPins(p5)}`);
+      await p5.goto('about:blank'); // left, not just shut (as with the 8 tabs below)
+      await sleep(300);
+      await ctx5.close();
+
       // ---- eight tabs of one lab: one stream for all, handed over when its tab goes ----
       const ctx2 = await browser.newContext({ viewport: { width: 1000, height: 700 } });
       await ctx2.addInitScript(() => localStorage.setItem('lab-name', 'leo'));

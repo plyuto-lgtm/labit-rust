@@ -358,3 +358,37 @@ test('a wait while server.json cannot be written is answered, and the lab keeps 
   fs.rmdirSync(path.join(dir, '.lab/server.json.tmp'));
   await lab.stop();
 });
+
+test("a renamed page takes its board along (its of, the frames that are the page, its pins) and what people had read stays read", async () => {
+  const dir = folder();
+  fs.writeFileSync(path.join(dir, 'pricing.html'), '<!doctype html><h1>Pricing</h1>');
+  const lab = await start(dir);
+  const own = { 'content-type': 'application/json', origin: lab.B };
+  const put = (name, body) => fetch(`${lab.B}/_lab/api/board?name=${name}&page=/pricing`, { method: 'PUT', headers: own, body: JSON.stringify(body) });
+  const board = async (name) => (await fetch(`${lab.B}/_lab/api/board?name=${name}`)).json();
+  assert.equal((await put('pb', { frames: [{ id: 'a', src: '/pricing', w: 1440, h: 900 }, { id: 'b', src: '/pricing', w: 390, h: 844, label: 'phone' }, { id: 'c', src: '/cart', w: 800, h: 600 }], of: '/pricing#hero' })).status, 200);
+  const { comment } = await lab.post({ page: '/pricing', name: 'Leo', text: 'tighter on the phone', anchor: { kind: 'board', board: 'pb', frame: 'b', fx: 10, fy: 20, bx: 10, by: 20, selector: '', x: 0, y: 0, docX: 0, docY: 0, width: 1000 } });
+  await fetch(`${lab.B}/_lab/api/reads`, { method: 'POST', headers: own, body: JSON.stringify({ name: 'Leo', page: '/pricing', ids: [comment.id] }) });
+  await lab.post({ page: '/pricing', name: 'Leo', text: 'warm', anchor }); // (the page's file must say which file it is)
+  await until(() => readJson(path.join(dir, '.lab/comments/pricing.json')).fid, 'the page file says which file it is');
+  await fetch(`${lab.B}/_lab/pages`).catch(() => {}); // opens the page list
+  assert.equal((await board('pb')).home, '/pricing', 'the board lives on its page');
+  fs.mkdirSync(path.join(dir, 'plans'));
+  fs.renameSync(path.join(dir, 'pricing.html'), path.join(dir, 'plans', 'prices.html'));
+  let moved = [];
+  for (let i = 0; i < 60 && !moved.length; i++) {
+    await sleep(100);
+    moved = await lab.list('/plans/prices');
+  }
+  assert.ok(moved.some((c) => c.id === comment.id), 'its pins went with it');
+  const now = await board('pb');
+  assert.equal(now.of, '/plans/prices#hero', 'the board is about the page under its new name (the #hero kept)');
+  assert.deepEqual(now.frames.map((f) => f.src), ['/plans/prices', '/plans/prices', '/cart'], 'the frames that were the page are the page again; another page stays');
+  assert.equal(now.home, '/plans/prices', 'it opens over its page, with its pins');
+  const readsOf = async (page) => (await (await fetch(`${lab.B}/_lab/api/reads?name=Leo&page=${encodeURIComponent(page)}`)).json()).ids || [];
+  assert.ok((await readsOf('/plans/prices')).includes(comment.id), 'what was read is read on the new page');
+  assert.deepEqual(await readsOf('/pricing'), [], 'and nothing is left under the old name');
+  const stateFile = path.join(dir, '.lab/state.json');
+  await until(() => fs.existsSync(stateFile) && readJson(stateFile).reads?.leo?.['/plans/prices']?.includes(comment.id) && !readJson(stateFile).reads.leo['/pricing'], 'the state says so too (saved, the old key dropped)');
+  await lab.stop();
+});

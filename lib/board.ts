@@ -3,7 +3,7 @@
 // /_lab/board/<name>/<frame>. The lab places frames; callers only give an order.
 import fs from 'node:fs';
 import path from 'node:path';
-import { IMAGE_FILE } from './images.mjs';
+import { IMAGE_FILE, imageInfo } from './images.mjs';
 
 export type Frame = { id: string; src: string; kind?: 'image'; file?: string; iw?: number; ih?: number; guest?: boolean; w: number; h: number; x?: number; y?: number; label?: string; variantOf?: string; state?: 'live' | 'picked' | 'archived'; auto?: boolean };
 export type Board = { v: 1; name: string; rev: number; title?: string; of?: string; frames: Frame[] };
@@ -101,7 +101,7 @@ export const imageFile = (root: string, name: string, file: string) => {
 const ser = (b: Board) => `{"v":1,"name":${JSON.stringify(b.name)},"rev":${b.rev}${b.title ? `,"title":${JSON.stringify(b.title)}` : ''}${b.of ? `,"of":${JSON.stringify(b.of)}` : ''},\n"frames":[\n${b.frames.map((f) => '  ' + JSON.stringify({ ...f, auto: undefined })).join(',\n')}\n]}\n`;
 /** Writes a whole file or none of it (through a .tmp beside it), making its folder first. Also the settings' and the
  *  reply rules' writer. */
-export const writeAtomic = (file: string, text: string) => {
+export const writeAtomic = (file: string, text: string | Buffer) => {
   fs.mkdirSync(path.dirname(file), { recursive: true });
   fs.writeFileSync(file + '.tmp', text);
   fs.renameSync(file + '.tmp', file);
@@ -139,11 +139,20 @@ export const names = (root: string): string[] => {
   }
 };
 
+/** Puts a frame after the one named, or last. */
+export const insert = (b: Board, f: Frame, after?: string) => {
+  const at = after ? b.frames.findIndex((g) => g.id === after) : -1;
+  b.frames.splice(at < 0 ? b.frames.length : at + 1, 0, f);
+};
+
 // ---------- pictures ----------
-/** The size an image frame is drawn at: its long side up to 1440 world px, the aspect kept (check() clamps each side to 200..4000). */
-const fitted = (iw: number, ih: number) => {
-  const k = Math.min(1, 1440 / Math.max(iw, ih));
-  return [Math.round(iw * k), Math.round(ih * k)];
+/** What a file's first 64 KB say it is (never its name): lib/images.mjs imageInfo, null when it is no picture. */
+export const imageAt = (file: string) => {
+  const head = Buffer.alloc(65536);
+  const fd = fs.openSync(file, 'r');
+  const n = fs.readSync(fd, head, 0, head.length, 0);
+  fs.closeSync(fd);
+  return imageInfo(head.subarray(0, n));
 };
 /** A picture as a new frame of a stored board: its file is written, the frame put (at the given centre, or placed by the lab),
  *  rev and file saved. All of it is synchronous, so nothing can come between the read and the write. */
@@ -153,17 +162,14 @@ export function addImage(root: string, b: Board, bytes: Buffer, info: { ext: str
   const left = (id: string) => { try { return fs.readdirSync(dir).some((n) => n.startsWith(`${id}.`)); } catch { return false; } };
   const id = nextId(b.frames, left);
   const file = `${id}.${info.ext}`;
-  const [fw, fh] = fitted(info.w, info.h);
-  const w = px(fw, 200, 4000)!;
-  const h = px(fh, 200, 4000)!;
+  // The size it is drawn at: its long side up to 1440 world px, the aspect kept, each side held to 200..4000.
+  const k = Math.min(1, 1440 / Math.max(info.w, info.h));
+  const w = px(info.w * k, 200, 4000)!;
+  const h = px(info.h * k, 200, 4000)!;
   const f: Frame = { id, src: `/_lab/board/${b.name}/${id}`, kind: 'image', file, iw: info.w, ih: info.h, w, h, state: 'live', ...(opts?.guest ? { guest: true } : {}), ...(opts?.label ? { label: one(opts.label, 80) } : {}) };
   if (at) [f.x, f.y] = [px(at.x - w / 2, -1e6, 1e6)!, px(at.y - h / 2, -1e6, 1e6)!];
-  fs.mkdirSync(dir, { recursive: true });
-  const target = imageFile(root, b.name, file);
-  fs.writeFileSync(target + '.tmp', bytes);
-  fs.renameSync(target + '.tmp', target);
-  const i = opts?.after ? b.frames.findIndex((g) => g.id === opts.after) : -1;
-  b.frames.splice(i < 0 ? b.frames.length : i + 1, 0, f);
+  writeAtomic(imageFile(root, b.name, file), bytes);
+  insert(b, f, opts?.after);
   b.rev++;
   save(root, b);
   return { frame: f };

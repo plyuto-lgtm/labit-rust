@@ -59,6 +59,16 @@ type Anchor = {
   imgY?: number;
   imgX2?: number;
   imgY2?: number;
+  fx?: number;
+  fy?: number;
+  fw?: number;
+  fh?: number;
+  zw?: number;
+  zh?: number;
+  docW?: number;
+  docH?: number;
+  pinX?: number;
+  pinY?: number;
   /** On a board: the frame a pin is on, in px from its top left. */
   frame?: string;
   time?: number;
@@ -98,7 +108,22 @@ type Deps = {
 let host: Deps['host'], layer: Deps['layer'], el: Deps['el'];
 export function bindAnchoring(deps: Deps) {
   ({ host, layer, el } = deps);
+  // Astro's dev toolbar takes data-astro-source-file and -loc off every element once the page is up: what they said is kept
+  // here, from each removal as it happens (the old value comes with it). Until then (or with the toolbar off) they are read live.
+  new MutationObserver((list) => {
+    for (const m of list) if (m.oldValue !== null) astro.set(m.target, { ...astro.get(m.target), [m.attributeName]: m.oldValue });
+  }).observe(document.documentElement, { attributes: true, subtree: true, attributeOldValue: true, attributeFilter: ASTRO });
 }
+const ASTRO = ['data-astro-source-file', 'data-astro-source-loc'];
+const astro = new WeakMap<Node, Record<string, string | null>>();
+// The nearest element up from `n` that Astro wrote its file and line on: "src/pages/index.astro:12:5".
+const astroSource = (n: Element | null) => {
+  for (; n; n = n.parentElement) {
+    const [file, loc] = ASTRO.map((a) => n.getAttribute(a) ?? astro.get(n)?.[a]);
+    if (file) return `${file.replace(/^.*\/src\//, 'src/')}:${loc || ''}`;
+  }
+  return '';
+};
 
 // A motion token (--_t-quick, -base, -slow, -loop, -hold, styles.css) in milliseconds, times `times`: for a timer or a
 // Web Animation, which can't read a var(). It is 0 under reduced motion, as the CSS durations are (hold excepted).
@@ -606,8 +631,7 @@ export function anchorAt(clickX, clickY, words = false, onto = null) {
     anchor.looks = looksOf(target);
     anchor.rules = rulesOf(target);
     anchor.box = boxOf(target);
-    const astro = target.closest?.('[data-astro-source-file]');
-    if (astro && !anchor.source) anchor.source = short(`${astro.getAttribute('data-astro-source-file').replace(/^.*\/src\//, 'src/')}:${astro.getAttribute('data-astro-source-loc') || ''}`, 200);
+    if (!anchor.source && astroSource(target)) anchor.source = short(astroSource(target), 200);
   }
   // A <select>: which option is chosen (its text is every option in a row).
   const select = target.closest?.('select');
@@ -1469,10 +1493,16 @@ export function zoneAnchor({ x0, y0, x1, y1 }) {
   const right = Math.max(x0, x1);
   const bottom = Math.max(y0, y1);
   const anchor = anchorAt((left + right) / 2, (top + bottom) / 2);
-  // An area on a picture of a board: its two corners on the picture itself (the board knows the picture's file and size).
-  const corner = (window as unknown as { __labBoard?: { anchor?: (x: number, y: number) => Anchor } }).__labBoard?.anchor;
-  const [p, q] = anchor.kind === 'board' && anchor.nw && corner ? [corner(left, top), corner(right, bottom)] : [];
-  if (p && q && p.frame === anchor.frame && q.frame === anchor.frame) Object.assign(anchor, { imgX: p.imgX, imgY: p.imgY, imgX2: q.imgX, imgY2: q.imgY });
+  // An area on a board's frame: kept in the frame's own px (its corner, its size as shares of the frame), never measured on the
+  // board's own boxes; on a picture, its two corners on the file too. Not within one frame: a point at its middle.
+  if (anchor.kind === 'board') {
+    const B = (window as unknown as { __labBoard?: { anchor: (x: number, y: number) => Anchor; size?: (id: string) => { w: number; h: number } | null } }).__labBoard;
+    const [p, q] = [B?.anchor(left, top), B?.anchor(right, bottom)];
+    const size = p?.frame && p.frame === q?.frame ? B?.size?.(p.frame) : null;
+    if (!p || !q || !size) return anchor;
+    const [w, h] = [Math.round(q.fx - p.fx), Math.round(q.fy - p.fy)];
+    return Object.assign(p, { zw: w / size.w, zh: h / size.h, fw: size.w, fh: size.h, docW: w, docH: h, pinX: x1 >= x0 ? 1 : 0, pinY: y1 >= y0 ? 1 : 0, ...(p.nw && { imgX2: q.imgX, imgY2: q.imgY }) });
+  }
   delete anchor.sx; // an area is stored on its box, as shares of it
   let box = document.elementsFromPoint((left + right) / 2, (top + bottom) / 2).find((n) => n !== host && !host.contains(n));
   // The area is on the smallest element that holds most of it (80%): a narrow strip drawn a little past a picture's

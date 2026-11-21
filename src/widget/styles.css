@@ -14,6 +14,9 @@
   --_soft: var(--lab-soft, rgba(0,0,0,.05)); --_hover: var(--lab-hover, rgba(0,0,0,.10)); --_line: var(--lab-line, rgba(0,0,0,.15)); --_edge: var(--lab-edge, #c7c7cc); --_muted: var(--lab-muted, rgba(0,0,0,.50));
   --_hair: .5px solid color-mix(in srgb, var(--_fg) 16%, transparent);
   --_shadow: 0 0 0 .5px color-mix(in srgb, var(--_fg) 14%, transparent), 0 1px 2px rgba(0,0,0,.04), 0 8px 28px rgba(0,0,0,.08);
+  /* Phones: Safari ends the page 16 px under the bar, and what a shadow draws below that is cut off square (iOS 27 simulator, 21 Nov:
+     a tinted box under the pill, Leo's screenshot). A shadow that ends within that gap. */
+  --_shadow-low: 0 0 0 .5px color-mix(in srgb, var(--_fg) 14%, transparent), 0 1px 2px rgba(0,0,0,.04), 0 2px 8px rgba(0,0,0,.06);
   /* Motion: one set of durations and curves, and every transition and animation below uses it (docs/motion.md). Set
      --lab-t-quick, --lab-t-base, --lab-t-slow, --lab-t-loop, --lab-t-hold or --lab-ease, --lab-ease-out, --lab-ease-in,
      --lab-ease-settle, --lab-ease-pop the same way as the colours. */
@@ -35,7 +38,7 @@
   :host { --_bg: var(--lab-bg, #1c1c1e); --_fg: var(--lab-fg, #f4f4f5);
           --_accent: var(--lab-accent, #f4f4f5); --_accent-fg: var(--lab-accent-fg, #141414);
           --_soft: var(--lab-soft, rgba(255,255,255,.05)); --_hover: var(--lab-hover, rgba(255,255,255,.10)); --_line: var(--lab-line, rgba(255,255,255,.15)); --_edge: var(--lab-edge, #48484a); --_muted: var(--lab-muted, rgba(255,255,255,.50));
-          --_shadow: 0 0 0 1px color-mix(in srgb, var(--_fg) 16%, transparent), 0 10px 32px rgba(0,0,0,.5); --_amber: var(--lab-amber, #f0a040);
+          --_shadow: 0 0 0 1px color-mix(in srgb, var(--_fg) 16%, transparent), 0 10px 32px rgba(0,0,0,.5); --_shadow-low: 0 0 0 1px color-mix(in srgb, var(--_fg) 16%, transparent), 0 2px 8px rgba(0,0,0,.4); --_amber: var(--lab-amber, #f0a040);
           --_green-fg: rgb(52, 199, 89); /* the text-sized green, lighter on dark (lab.css's dark --lab-green, #34c759) */ }
 }
 * { box-sizing: border-box; font-family: var(--lab-font, system-ui, -apple-system, 'Segoe UI', Roboto, 'Helvetica Neue', Arial, sans-serif);
@@ -46,6 +49,11 @@
 ::selection { background: color-mix(in srgb, var(--_accent) 38%, transparent); color: var(--_fg); }
 button:focus-visible { outline: 2px solid var(--_accent); outline-offset: 2px; }
 .layer { position: absolute; top: 0; left: 0; width: 0; height: 0; }
+/* Phones: the page shifted under a new comment (sheets.ts revealDraft): what stands on the page goes with it (pins, areas,
+   drawings), not a sheet or what is held to the screen. */
+/* Only while it is shifted: a translate left on a pin all the time, even of 0, put the card the browser ties to it 259 px
+   off on a computer (native check, 21 Nov). */
+:host([data-shift]) .layer > :not(.card, .float, [style*="fixed"]) { translate: 0 var(--lab-shift, 0px); transition: translate var(--lab-shift-t, 0s) var(--lab-shift-e, ease), opacity var(--_t-quick) var(--_ease-out); }
 .fit { position: absolute; left: 0; top: 0; width: 100px; height: 0; visibility: hidden; pointer-events: none; } /* measures what a page's zoom or transform makes of 100 px (comments.js fit) */
 .ui { display: contents; }
 /* Pinch-zoomed (sheets.ts zoomFit): the bar, chat and list are laid out on the unzoomed screen as always, then drawn
@@ -64,7 +72,11 @@ button:focus-visible { outline: 2px solid var(--_accent); outline-offset: 2px; }
    the one you point at or have open gets a green edge. */
 /* No lift on hover: a placed pin sits under the pointer and seemed to jump 1 px (Leo, 20 Nov). */
 /* The open one only gets the green edge, no lift: clicking away then changes nothing but the edge (Leo, 18 Nov). */
-button.pin:hover, button.pin.open, button.pin.open:is(:hover, :active) { box-shadow: 0 0 0 1.5px var(--_green-fg), 0 2px 8px rgba(0,0,0,.16); }
+button.pin { --_on: 0 0 0 1.5px var(--_green-fg), 0 2px 8px rgba(0,0,0,.16); }
+button.pin.open, button.pin.open:is(:hover, :active) { box-shadow: var(--_on); }
+/* Pointed at: only with a mouse. iOS keeps :hover on the last thing tapped, so a pin whose thread was swiped away (no tap
+   elsewhere) kept its green edge until the next tap (Leo, 21 Nov; iOS 27 simulator). */
+@media (hover: hover) and (pointer: fine) { button.pin:hover { box-shadow: var(--_on); } }
 /* Its card is tied to the pin (thread.ts tieToPin), and the browser reads the pin's box as drawn, scale included: a lift
    on the open pin moved the card with every touch of its edge (and flipped it above and below near the screen's end).
    So it never lifts, and goes from the lift to rest without a transition: the card is placed from the pin at rest. */
@@ -109,6 +121,7 @@ button.pin.dragging { cursor: grabbing; transform: scale(1.1); opacity: 1; box-s
 .ink path { fill: none; stroke: var(--lab-pen, var(--_red)); stroke-width: 3px; stroke-linecap: round; stroke-linejoin: round; vector-effect: non-scaling-stroke; }
 /* A fingertip wide (Leo's pick E, 20 Nov): 16 px was easy to miss on a phone. */
 .ink path.hit { stroke: transparent; stroke-width: 28px; pointer-events: stroke; cursor: pointer; }
+:host([data-lab-probe]) .ink path.hit { pointer-events: none; } /* draw.ts letterAt: asking the page what is under a point, the line is let through */
 .ink.live { left: 0; top: 0; width: 1px; height: 1px; }
 button.pin.ink, button.pin.ink:is(:hover, :active, .open) { margin: 0; background: none; box-shadow: none; outline: 0; color: transparent; pointer-events: none; transform: none; scale: none; }
 .pin.ink > :not(svg), button.pin.ink::before, .pin.ink::after { display: none; }
@@ -292,6 +305,9 @@ button.btn.undo { color: var(--_fg); }
 /* The send sign: a paper plane, one filled shape cut with clip-path (crisp at any size, no joins); it flies off on send. */
 .send .arr { display: block; position: relative; left: -1px; width: 12px; height: 11px; background: currentColor; clip-path: polygon(0 42%, 100% 0, 66% 100%, 46% 60%); }
 .send * { color: inherit; }
+.act { grid-area: send; display: flex; align-items: center; gap: 4px; }
+.clip { width: 24px; height: 24px; border: 0; border-radius: 50%; padding: 0; background: none; color: var(--_muted); font: inherit; font-size: 17px; line-height: 1; cursor: pointer; }
+.clip:hover { color: var(--_fg); }
 .error { color: var(--_red); font-size: 12px; padding: 6px 8px 0; letter-spacing: 0; }
 .error:empty { display: none; }
 .error.wait { color: var(--_muted); }
@@ -480,7 +496,13 @@ kbd::before { content: '('; } kbd::after { content: ')'; } /* read as a hint: ch
         box-shadow: var(--_shadow); padding: 8px 14px; border-radius: var(--_radius); font-size: 13px; pointer-events: none; white-space: nowrap;
         letter-spacing: -.006em; animation: lab-fade var(--_fade-base); }
 /* 16px fields keep iOS from zooming the page when one is focused. */
-@media (pointer: coarse) { .box textarea, .who input { font-size: 16px; letter-spacing: -.019em; } kbd { display: none; }
+/* Touch: nothing of the widget is selected but what is typed in its fields (a new comment's sheet comes up under a finger
+   that is still holding, and iOS's own long press selected its words: blue handles and a loupe over "go fix remove";
+   Leo, 21 Nov: "text selection only with shift"), and two quick taps on it are two taps, not Safari's zoom (Leo, 21 Nov:
+   "clicking on menu two times zooming page"). A part that says how it is touched itself (a handle, the tabs) keeps that. */
+@media (pointer: coarse) { * { touch-action: manipulation; -webkit-user-select: none; user-select: none; }
+  :is(textarea, input) { -webkit-user-select: text; user-select: text; }
+  .box textarea, .who input { font-size: 16px; letter-spacing: -.019em; } kbd { display: none; }
   .box textarea { line-height: 22px; padding: 7px 0; } /* phones: 22 + 7 + 7 = 36, the send button's size */
   .box.one .who { line-height: 22px; padding-bottom: 7px; } }
 @keyframes lab-fade { from { opacity: 0; } }
@@ -571,8 +593,11 @@ kbd::before { content: '('; } kbd::after { content: ')'; } /* read as a hint: ch
   .bar { transition: transform var(--_t-slow) var(--_ease-settle), opacity var(--_t-base) var(--_ease-out); }
   :host([data-sheet]) .bar { transform: translateY(calc((100% + 16px + env(safe-area-inset-bottom, 0px)) * (1 - var(--lab-p, 0))));
                              opacity: var(--lab-p, 0); pointer-events: none;
-                             transition: transform var(--_t-base) var(--_ease-in), opacity var(--_t-base) var(--_ease-out) calc(var(--_t-quick) / 3); }
+                             transition: transform var(--_t-base) var(--_ease-in), opacity calc(var(--_t-quick) / 2) var(--_ease-out); /* gone within a few frames of the sheet rising: it showed under the sheet's edge while it slid down (Leo, 21 Nov) */ }
   :host([data-sheet]) .bar button { pointer-events: none; }
+  /* A board open over the page is a sheet too: the bar and the pill step down under it (Leo, 21 Nov: the pill covered the
+     board's corner). Its own sheets (a pin's card on the board) bring them back as they close, as on a page. */
+  :host([data-board]:not([data-sheet])) :is(.bar, .listener, .left) { transform: translateY(calc(100% + 16px + env(safe-area-inset-bottom, 0px))); opacity: 0; pointer-events: none; }
   /* A sheet stands apart from the page: the page dims behind it (a tap there closes it), and scrolling inside a
      sheet never scrolls the page. */
   :host([data-sheet]) .scrim { display: block; animation: lab-fade var(--_fade-base); }
@@ -589,7 +614,10 @@ kbd::before { content: '('; } kbd::after { content: ')'; } /* read as a hint: ch
   /* Pulled up: the chat takes the whole screen, below the status bar (iOS large / Android expanded). */
   .chatwin.full, .card.full { max-height: none; }
   /* The header is the sheet's top edge, grab handle drawn on it; the list scrolls below it, never under or above it. */
-  .list .tabs { flex-wrap: nowrap; overflow-x: auto; padding: 18px 12px 8px; background: var(--_bg); }
+  /* No background of its own (the sheet's shows): a strip 18 px tall can't have the sheet's 30 px corners, so its white box
+     stood out past them and covered the sheet's edge and shadow there (Leo, 21 Nov: the chat "hides behind some fade", seen
+     over a board's grey). */
+  .list .tabs { flex-wrap: nowrap; overflow-x: auto; padding: 18px 12px 8px; }
   .chatwin .msgs { padding: 4px 12px 8px; }
   .chatwin .tabs { padding: 18px 12px 0; } /* just the grab strip, as tall as a thread's */
   .chatwin .chat { padding: 6px 12px var(--_pb); }
@@ -597,9 +625,7 @@ kbd::before { content: '('; } kbd::after { content: ')'; } /* read as a hint: ch
      through it, blurred. Only the box's own strip overlaps; the new / resolve / delete row stays on the sheet. */
   .chatwin .msgs { margin-bottom: calc(-56px - var(--_pb)); padding-bottom: calc(64px + var(--_pb)); }
   .card > .body { margin-bottom: calc(-56px - var(--_pb)); padding-bottom: calc(64px + var(--_pb)); }
-  /* …and fade out behind the box (iOS's scroll edge): from 4 px above its top to 12% at its bottom (Leo, 15 Nov:
-     "behind input bottom", "a bit more", "less, it's just black", then "more, darker there"). */
-  .chatwin .msgs, .card > .body { mask-image: linear-gradient(#000 calc(100% - 60px - var(--_pb)), rgba(0,0,0,.12) calc(100% - var(--_pb))); }
+  /* No fade where the messages meet the box: they run on, blurred, under its glass (Leo, 21 Nov: "its fading down there i hate it"; the 15 Nov fade is gone). */
   .chatwin .chat, .card > .foot { position: relative; z-index: 1; background: none; }
   :host { --_box-bg: color-mix(in srgb, var(--_bg) 72%, transparent);
           --_box-edge: inset 0 0 0 .5px color-mix(in srgb, var(--_fg) 16%, transparent), 0 4px 18px rgba(0, 0, 0, .08); }
@@ -628,6 +654,8 @@ kbd::before { content: '('; } kbd::after { content: ')'; } /* read as a hint: ch
 .quick button { border: 0; border-radius: var(--_r-s); padding: 5px 8px; background: var(--_soft); font-size: 12px; letter-spacing: 0; cursor: pointer; }
 .quick button:hover { background: var(--_hover); }
 .quick button.on { background: var(--_fg); color: var(--_bg); font-weight: 600; }
+.quick button.own { margin-left: auto; background: color-mix(in srgb, var(--_green) 14%, transparent); color: var(--_green-fg); } /* +board: labit's own action, not one of your list */
+.quick button.own:hover { background: color-mix(in srgb, var(--_green) 24%, transparent); }
 .quick.alt button::after { content: attr(data-n); margin-left: 6px; opacity: .55; font-variant-numeric: tabular-nums; } /* ⌥ held: the key for each */
 .float .quick button, .float .box { border-radius: max(0px, calc(var(--_radius) - 8px)); }
 @media (pointer: coarse) and (max-width: 560px), (pointer: coarse) and (max-height: 500px) {
@@ -643,7 +671,7 @@ kbd::before { content: '('; } kbd::after { content: ')'; } /* read as a hint: ch
 @media (pointer: coarse) and (max-width: 560px), (pointer: coarse) and (max-height: 500px) { /* phones, upright or on their side */
   .listener { display: none !important; }
   .left { bottom: 72px; } /* only the copy-link pill is left here on a phone: it sits above the bar */
-  .bar { bottom: 16px !important; }
+  .bar { bottom: 16px !important; box-shadow: var(--_shadow-low); }
   .hint { bottom: 64px !important; }
   /* Sized and set to the word: its ink about 1.3× the text's height, its foot on the baseline, 6 px from "chat" like the count. */
   .chat-btn .mark { align-self: center; width: 13px; height: 13px; margin: 0 -2.5px 0 -2px; translate: 0 -1.5px; }
@@ -652,7 +680,7 @@ kbd::before { content: '('; } kbd::after { content: ')'; } /* read as a hint: ch
   .chat-btn.stale .mark { opacity: .4; }
   .chat-btn[data-agent=working] .mark :is(.e1, .e2) { animation: lab-twitch var(--_twitch); }
   .chat-btn[data-agent=working] .mark .e2 { animation-delay: calc(var(--_t-quick) * 1.5); }
-  .send { width: 36px; height: 36px; position: relative; }
+  .send, .clip { width: 36px; height: 36px; position: relative; }
   .send::before { content: ''; position: absolute; inset: -4px; border-radius: 50%; } /* 44 pt to hit, 36 to see */
   .send .arr { width: 17px; height: 15px; margin: auto; }
 }
@@ -661,13 +689,12 @@ kbd::before { content: '('; } kbd::after { content: ')'; } /* read as a hint: ch
 [hidden] { display: none !important; }
 /* Phones: sheets float as cards, as iOS 27's do (Leo, 16 Nov): 8 px in from the screen's sides and bottom (from the
    keyboard's top when it's up), round at every corner, a soft shadow, and the page behind not dimmed (a tap there still
-   closes it). A tapped sheet grows out of what you tapped (--lab-from, set in render) and shrinks back into it. */
+   closes it). A tapped sheet rises in from the bottom (--lab-from still sets where its small scale pivots). */
 @media (pointer: coarse) and (max-width: 560px), (pointer: coarse) and (max-height: 500px) {
   :host { --_gap: 8px; --_card-r: 30px; }
   .card, .float, .list, .sw-box { left: var(--_gap) !important; right: var(--_gap); bottom: var(--_gap) !important; border-radius: var(--_card-r) !important;
     background: var(--_bg);
-    box-shadow: 0 0 0 .5px color-mix(in srgb, var(--_fg) 10%, transparent), 0 12px 40px rgba(0, 0, 0, .18); transform-origin: var(--lab-from, 50% 100%); }
-  .list .tabs { border-radius: var(--_card-r) var(--_card-r) 0 0; }
+    box-shadow: 0 0 0 .5px color-mix(in srgb, var(--_fg) 10%, transparent), 0 0 8px rgba(0, 0, 0, .14); transform-origin: var(--lab-from, 50% 100%); }
   :host([data-kb]) :is(.card, .list:not([hidden]), .sw-box) { top: calc(var(--lab-top, 0px) + var(--_gap)) !important; height: calc(var(--lab-vh, 100dvh) - 2 * var(--_gap)) !important; }
   :host([data-kb]) .float { bottom: calc(var(--lab-kb, 0px) + var(--_gap)) !important; }
   /* Pinch-zoomed: a thread's or new comment's sheet (on the page's layer, with the pins) is drawn the same way as .ui:
@@ -677,8 +704,18 @@ kbd::before { content: '('; } kbd::after { content: ')'; } /* read as a hint: ch
   .chatwin.full, .card.full { height: calc(var(--lab-vh, 100dvh) - env(safe-area-inset-top, 0px) - 10px - var(--_gap) + var(--_kb)); }
   .scrim { background: transparent; }
   .card.in, .float.in, .list:not([hidden]), .sw-box { animation: lab-card-in var(--_t-slow) var(--_ease); }
+  /* Safari paints the strip under its see-through bar in the colour of whatever fixed thing comes within a few px of the
+     screen's bottom: a sheet rising in, sliding away or pulled down by a finger turned it the sheet's white, a square band
+     under a grey board (Leo, 21 Nov; iOS 27 simulator). It takes the topmost fixed thing there, and a clear one changes
+     nothing: this strip lies over everything of ours while a sheet is open or leaving, so the bar keeps the colour it had
+     (the page's, or the board's). Only then: there all the time, a board opened under it never coloured the bar. 2 px was
+     not enough, 12 is. */
+  :host(:is([data-sheet], [data-leaving])) .ui::after { content: ''; position: fixed; left: 0; right: 0; bottom: 0; height: 12px; z-index: 9; pointer-events: none; }
 }
-@keyframes lab-card-in { from { transform: scale(.3); opacity: 0; } 40% { opacity: 1; } }
+/* A sheet rises into place from the screen's edge, nearly its own size: it used to grow from 30% at the chip, and for those
+   frames the pill, the empty page and a small ghost of the sheet showed behind it (Leo, 21 Nov: "weird square placeholder
+   behind", "menu pill weirdly glitching behind window"). */
+@keyframes lab-card-in { from { transform: translateY(28px) scale(.97); opacity: 0; } 60% { opacity: 1; } }
 /* Feedback on an agent's answer (src/widget/thread.ts): the button under the answer, the bar over the reply box while
    writing it, and the rule the agent made of it, on the answer that saved it. */
 .msg .rule { display: block; margin-top: 6px; font-size: 12px; opacity: .8; letter-spacing: 0; line-height: 1.35; }
@@ -713,3 +750,5 @@ kbd::before { content: '('; } kbd::after { content: ')'; } /* read as a hint: ch
   :host([data-sheet]) :is(.bar, .listener, .left) { transform: none; transition: opacity var(--_t-calm) var(--_ease-out); }
   :is(.bar, .listener, .left) { transition: opacity var(--_t-calm) var(--_ease-out); }
 }
+/* The board under a phone's keyboard: iOS pans the screen up and every fixed thing slides with it; the board view goes down by the pan (src/board/overlay.ts), and so do the pins held to it. */
+:host([data-pan]) .pin[style*="fixed"] { translate: 0 var(--lab-pan, 0px); }

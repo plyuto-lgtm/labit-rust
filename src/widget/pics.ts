@@ -7,10 +7,11 @@ export async function prep(file: Blob, max: number, side: number): Promise<Blob 
   try {
     src = await createImageBitmap(file);
   } catch {
+    const url = URL.createObjectURL(file);
     src = await new Promise<HTMLImageElement>((ok, no) => {
-      const url = URL.createObjectURL(file);
-      const img = Object.assign(new Image(), { onload: () => (URL.revokeObjectURL(url), ok(img)), onerror: () => (URL.revokeObjectURL(url), no(new Error('decode'))), src: url });
+      const img = Object.assign(new Image(), { onload: () => ok(img), onerror: no, src: url });
     }).catch(() => null as never);
+    URL.revokeObjectURL(url);
   }
   if (!src?.width) return null;
   const long = Math.max(src.width, src.height);
@@ -19,7 +20,7 @@ export async function prep(file: Blob, max: number, side: number): Promise<Blob 
   const cv = Object.assign(document.createElement('canvas'), { width: Math.max(1, Math.round(src.width * k)), height: Math.max(1, Math.round(src.height * k)) });
   cv.getContext('2d')!.drawImage(src, 0, 0, cv.width, cv.height);
   const enc = (t: string, q: number) => new Promise<Blob | null>((ok) => cv.toBlob(ok, t, q));
-  let out = /^image\/(png|gif|webp)$/.test(file.type) ? await enc('image/webp', 0.9) : null; // (Safari answers a png)
+  let out = /^image\/(png|webp|gif)$/.test(file.type) ? await enc('image/webp', 0.9) : null; // (Safari answers a png)
   for (const q of [0.88, 0.6]) if (!out || out.size > max) out = await enc('image/jpeg', q);
   return out;
 }

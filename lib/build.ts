@@ -6,7 +6,7 @@ import path from 'node:path';
 import { execFileSync } from 'node:child_process';
 
 /** The built files, as scripts/build-widget.mjs writes them (lab.css from src/lab.css). */
-const BUILT = ['comments.js', 'components.js', 'switcher.js', 'draw.js', 'sections.js', 'motion.js', 'boardview.js', 'pics.js', 'lab.css'];
+const BUILT = ['comments.js', 'components.js', 'switcher.js', 'draw.js', 'sections.js', 'motion.js', 'boardview.js', 'pics.js', 'attach.js', 'lab.css'];
 
 const newest = (dir: string): number => {
   let t = 0;

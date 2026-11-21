@@ -321,8 +321,12 @@ export async function run(plan, ctx, opts) {
     await until(() => d.find(id), 1500, 20);
     return d.find(id);
   };
-  // What the lab should answer a person's step with, by who they are: this computer may do all; a phone only its own.
-  const mayChange = (d, root) => d.kind === 'laptop' || d.edits.has(root);
+  // What the lab should answer a person's step with, by who they are (local.mjs isOwner, #397): this computer's browser (the
+  // key) and a device that holds a pass (the cookie of its one-time link) are the owner and may resolve, reopen, move and
+  // delete any pin. A device without a pass would keep the old limits: only its own pin, with that pin's key. Every phone
+  // here is let in with a link above, so it holds one (d.cookie); the old rule stays for a device that doesn't.
+  const owner = (d) => d.kind === 'laptop' || Boolean(d.cookie);
+  const mayChange = (d, root) => owner(d) || d.edits.has(root);
   const human = async (op, i, act, okWhen) => {
     try {
       const out = await act();
@@ -401,9 +405,9 @@ export async function run(plan, ctx, opts) {
       if (d.off || page !== d.attrs.page) return;
       const c = await shown(d, root);
       if (!c) return;
-      // A phone may take back only its own pin, fresh (15 s) and unanswered.
+      // The owner (this computer, or a device with a pass) may delete any pin; one without a pass only its own pin, fresh (15 s) and unanswered.
       const t = T.get(root);
-      const own = d.kind === 'laptop' ? true : !d.edits.has(root) || t.said ? false : t.maybe || Date.now() - t.at > 12000 ? undefined : true;
+      const own = owner(d) ? true : !d.edits.has(root) || t.said ? false : t.maybe || Date.now() - t.at > 12000 ? undefined : true;
       const out = await human(op, i, () => d.remove(c).then(() => true), () => (M.get(root).gone ? false : own));
       if (out) drop(root);
     } else if (op.t === 'areply') {
@@ -475,6 +479,25 @@ export async function run(plan, ctx, opts) {
   const rounds = new Map();
   plan.ops.forEach((op, i) => op && rounds.set(op.r, [...(rounds.get(op.r) || []), [op, i]]));
   for (const [, ops] of [...rounds].sort((a, b) => a[0] - b[0])) await Promise.all(ops.map(([op, i]) => step(op, i)));
+
+  // ---------- what must stay refused: a device on the wifi with no pass, whatever it sends (#397 changed who is the owner, not that) ----------
+  // No cookie: none of resolve, reopen, move or delete takes, with no key, with a forged admin key, or with a made-up edit key.
+  if (wifi) {
+    const live = [...byOp.values()].find((id) => M.get(id) && !M.get(id).gone && T.get(id) && !T.get(id).chat);
+    if (live) {
+      const pg = M.get(live).page;
+      let refused = 0;
+      for (const [what, extra] of [['resolve', {}], ['reopen', {}], ['move', { anchor: { ...ANCHORS.spot(), selector: '#t' } }], ['delete', {}]]) {
+        for (const [how, headers, edit] of [['no credentials', {}, undefined], ['a forged admin key', { 'x-lab-admin': 'f'.repeat(64) }, undefined], ['a forged edit key', {}, 'e'.repeat(32)]]) {
+          const r = await rq(lab, { from: 'lan', method: 'POST', path: '/_lab/api/comments', headers, body: { page: pg, action: what, id: live, ...(edit ? { edit } : {}), ...extra } }).catch((e) => ({ status: 0, text: String(e.message) }));
+          if (r.status >= 200 && r.status < 300) ctx.add('silent', 'accepted-what-should-be-refused', `a device with no pass was let ${what} ${live} (${how}): ${r.status}`, { step: what, device: 'no-pass' });
+          else if (r.status === 403) refused++;
+          else if (r.status !== 403) ctx.note(`unclear: ${what} with ${how} answered ${r.status} (not 2xx, not 403): ${String(r.text).slice(0, 120)}`);
+        }
+      }
+      ctx.note(`no-pass probes: ${refused} of 12 refused with 403`);
+    }
+  }
 
   // ---------- the end: everyone back, every pin handed out, then what does each observer hold? ----------
   for (const d of devices) if (d.off) (d.off = false), d.online();

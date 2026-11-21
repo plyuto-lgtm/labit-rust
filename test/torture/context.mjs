@@ -497,6 +497,26 @@ const IN_PAGE = () => {
     const media = E.closest?.('svg, canvas, img');
     return { x: at[0], y: at[1], el: say(E), same: E === el, frac: [q.width ? (at[0] - q.left) / q.width : 0, q.height ? (at[1] - q.top) / q.height : 0], box: rect(el), media: media ? rect(media) : null, words: how.words ? wordRects(el, ...how.words) : null, firstLine: own[0] ? [own[0].left, own[0].top, own[0].right, own[0].bottom] : null, vw: innerWidth, vh: innerHeight, dpr: Math.round((devicePixelRatio || 1) * 100) / 100, path: location.pathname, ready: Boolean(root()?.querySelector('.scrim')) && document.readyState === 'complete' };
   };
+  /** After a save was patched in (it cross-fades, and a point is not hit properly then: <html>, or something of the old layout): what is
+   * under that point in the last moment before the widget opens its comment box for the click, which is what the widget met when it
+   * took the click (it waits for the transition). Read as probe reads, against the target's box as it is then. */
+  const settle = (x, y, t) => new Promise((done) => {
+    const t0 = Date.now();
+    let last = null;
+    const look = () => {
+      const open = Boolean(root()?.querySelector('.float textarea'));
+      const top = deepAt(x, y);
+      if (top && top !== document.documentElement && top !== host()) {
+        const E = top.closest?.('[data-comment-target]') || top;
+        const q = E.getBoundingClientRect();
+        const target = find(t);
+        last = { E, el: say(E), same: E === target, frac: [q.width ? (x - q.left) / q.width : 0, q.height ? (y - q.top) / q.height : 0], box: target ? rect(target) : null };
+      }
+      if (open || Date.now() - t0 > 2500) return done(last);
+      setTimeout(look, 4);
+    };
+    look();
+  }).then((r) => (r ? ((window.__ctxE = r.E), delete r.E, r) : r));
   /** Does a selector lead to the element the last probe found? 'same', 'none', 'error', or what it leads to. */
   const leads = (selector) => {
     let n = null;
@@ -544,7 +564,7 @@ const IN_PAGE = () => {
     box?.focus({ preventScroll: true });
     return Boolean(box) && root().activeElement === box;
   };
-  window.__ctx = { find, probe, leads, shown, selectable, hold, focusBox, clear };
+  window.__ctx = { find, probe, settle, leads, shown, selectable, hold, focusBox, clear };
 };
 
 /** Something goes wrong on the page, in the page's own time (a timer, not inside the test's call). Sent to the page as
@@ -827,20 +847,24 @@ export async function run(plan, ctx, opts) {
     if (pr.error) return void note(`   (${pr.error}: skipped)`);
     await sleep(120); // the scroll into view has ended
     // (The same point again after the scroll: what is under it now is what the click meets.)
-    const at = await ev(d, ([t, h]) => window.__ctx.probe(t, h), [op.target, how], fkey).catch(() => pr);
+    let at = await ev(d, ([t, h]) => window.__ctx.probe(t, h), [op.target, how], fkey).catch(() => pr);
     if (at.error) return void note(`   (${at.error}: skipped)`);
     if (!at.same) note(`   (under the pointer at ${at.x},${at.y}: <${at.el.tag}${at.el.dt ? ` data-t="${at.el.dt}"` : ''}>, not the target itself, whose box is ${at.box.map(Math.round)}; window ${at.vw}×${at.vh})`);
     // The browser says nothing but the page itself is under a point inside the element's box. Right after a save was
     // patched in (the widget cross-fades it, and a page is not hit while it fades) that is what a person's click meets
     // too: the click is made and what the pin lands on is told. Any other time the test has no point to click.
     const nowhere = !at.same && (at.el.tag === 'html' || at.el.body);
-    const fading = nowhere && d.patchedAt && Date.now() - d.patchedAt < 1500;
+    const recent = !at.same && d.patchedAt && Date.now() - d.patchedAt < 1500;
+    const fading = nowhere && recent;
     if (nowhere && !fading) return void note('   (the browser finds nothing of the element under any of its points: skipped)');
     // Where the frame's own window starts in the tab's (the test's frames have no border).
     const off = fkey ? await (await frameOf(d, fkey).frameElement()).boundingBox().catch(() => null) : { x: 0, y: 0 };
     if (!off) return void note('   (the frame has no place in the tab: skipped)');
     const X = (x) => off.x + x;
     const Y = (y) => off.y + y;
+    // (While the save cross-fades the hit is <html>, which is not what the widget pins: it waits for the transition, and the element
+    // it meets is the one under that point then. That is read from the moment the fade ends, started before the click.)
+    const settled = recent ? ev(d, ([x, y, t]) => window.__ctx.settle(x, y, t), [at.x, at.y, op.target], fkey).catch(() => null) : null;
     const [bl, bt, br, bb] = at.box;
     const inWin = (v, max) => Math.min(Math.max(v, 3), max - 3);
     let via = op.via;
@@ -870,11 +894,18 @@ export async function run(plan, ctx, opts) {
       await drag(p, [X(from[0]), Y(from[1])], [X(to[0]), Y(to[1])]);
     } else if (via === 'draw') {
       // A line drawn through the middle of its first line of words (it reads as crossed out), D held.
+      // An element with no words and no picture (white space only) has nothing to go through: a line across its empty
+      // box is an underline of the words just above it, and the area is theirs (draw.ts), so it is not drawn on.
+      if (!at.firstLine && !at.media && !at.el.raw.trim()) return void note('   (the element has no words to draw a line through: skipped)');
       const f = at.firstLine || at.box;
       const y = (f[1] + f[3]) / 2;
       const end = inWin(Math.min(f[2] - 2, f[0] + 180), at.vw);
       const from = await firstFree(Array.from({ length: 8 }, (_, n) => [inWin(f[0] + 2 + n * 14, at.vw), y]).filter(([x]) => end - x >= 30));
       if (!from) return void note('   (no 30 px of its first line are free of the widget: skipped)');
+      // D goes to the document that has the focus, and only that page's widget sees it held: after a pin inside the
+      // <iframe> the frame has it, and a line drawn on the page then is a plain box (a person who goes from one page
+      // to the other clicks or tabs there first). Focus goes to the page the line is drawn in.
+      await ev(d, () => (document.activeElement instanceof HTMLElement && document.activeElement.blur(), window.focus()), null, fkey).catch(() => {});
       await p.keyboard.down('d');
       await sleep(150);
       await drag(p, [X(from[0]), Y(y)], [X(end), Y(y)], 12);
@@ -895,6 +926,8 @@ export async function run(plan, ctx, opts) {
     }
     // (A press that met an earlier pin or drawing opened its thread: the words went there as a reply. No new pin.)
     if (c.parent) return void (note('   (the press opened an earlier pin\'s thread, the words are a reply there: no new pin)'), await p.keyboard.press('Escape').catch(() => {}));
+    const after = await settled;
+    if (after?.el && after.el.tag !== 'html') at = { ...at, ...after };
     if (fading && (c.anchor?.selector === 'body' || !c.anchor?.selector)) {
       silent('pin-during-a-patch-fade-lands-on-the-page-itself', `step ${i}: ${Date.now() - d.patchedAt} ms after a save was patched into ${d.key}, a click inside <${tg.node?.tag || tg.tag} data-t="${op.target}"> (its box ${at.box.map(Math.round)}, the click at ${at.x},${at.y}) made a pin on ${JSON.stringify(c.anchor?.element)} ${c.anchor?.selector === 'body' ? '(the page itself, no element)' : ''}: while the widget cross-fades the patch the browser hits nothing but <html> (${plan.browser})`, {});
       return void (await sleep(350), await p.keyboard.press('Escape').catch(() => {}));
@@ -1083,14 +1116,24 @@ export async function run(plan, ctx, opts) {
       const src = f('written at');
       const comp = f('component');
       if (S.file) {
-        const m = /^(.*?)(?::(\d+))?(?::(\d+))?( \(line (\d+) as served, may differ from the source\))?$/.exec(src || '');
+        // The text says the line as it is now, or says what it is (the contract, lib/source-line.mjs): "file:line" (checked against
+        // the file, so right now), "file:line (line from when it was pinned; …)" (as pinned, not checked or no file to check),
+        // "file:line (the pin recorded line N, …)" (moved: the new line, which must be the element's own now), "file (the pin recorded line N; …
+        // lines a, b: check which)" or "file (the pin recorded line N; … not found again …)" (no line named).
+        const m = /^(.*?)(?::(\d+))?(?::(\d+))?( \((?:line (\d+) as served, may differ from the source|line from when it was pinned;[^)]*|the pin recorded line (\d+)[,;][^)]*)\))?$/.exec(src || '');
+        const [asServed, asPinned, noLine] = [m && /as served/.test(m[4] || ''), m && /^ \(line from when/.test(m[4] || ''), m && m[6] && !m[2]];
         if (!src && S.file === 'if-said') {
           // (Next draws these on the server: nothing says a pin can name their source. What it does say must be right.)
         } else if (!src) no('source-missing', `no "written at" line for an element ${fw} drew from ${k.file}:${k.lines[0]}${pin.tg.markup ? ` (${pin.tg.markup} markup)` : ''}`, pin.tg.markup ? { markup: pin.tg.markup } : {});
         else if (m[1] !== k.file) no('source-names-another-file', `written at: ${src}; the element is written in ${k.file}`, { names: /\.next\/|node_modules|\/chunks\//.test(src) ? 'a-built-file' : 'another-source-file' });
-        else if (S.line && !m[4]) {
-          if (!m[2]) no('source-line-missing', `written at: ${src}; the element is on line ${k.lines[0]} of ${k.file}`, {});
-          else if (Number(m[2]) !== k.lines[0]) {
+        else if (S.line && !asServed) {
+          if (noLine) {
+            // Not found again: right when the element did move or change, a false alarm when it is where it was.
+            if (pin.line0 === k.lines[0]) no('source-line-false-alarm', `written at: ${src}; the element is still on line ${k.lines[0]} of ${k.file}, where it was when pinned`, {});
+          } else if (!m[2]) no('source-line-missing', `written at: ${src}; the element is on line ${k.lines[0]} of ${k.file}`, {});
+          else if (asPinned) {
+            if (Number(m[2]) !== pin.line0) no('source-line-wrong', `written at: ${src}; the element was on line ${pin.line0} of ${k.file} when it was pinned`, { made: pin.late ? 'after-the-edit' : 'before-the-edit' });
+          } else if (Number(m[2]) !== k.lines[0]) {
             if (Number(m[2]) === pin.line0 && pin.line0 !== k.lines[0]) no('source-line-stale-after-edit', `written at: ${src}: right when it was pinned; lines were put above since and the element is on line ${k.lines[0]} now. Nothing in the text says the line is from then`, {});
             else no('source-line-wrong', `written at: ${src}; the element was on line ${pin.line0} of ${k.file} when it was pinned${pin.line0 !== k.lines[0] ? ` (line ${k.lines[0]} now)` : ''}`, { made: pin.late ? 'after-the-edit' : 'before-the-edit' });
           }
@@ -1181,10 +1224,14 @@ export async function run(plan, ctx, opts) {
         // Errors: every line known by its word.
         const has = (x, tok) => new RegExp(`${tok}(?![0-9a-z])`).test(x); // (…n1 is not …n10)
         const mine = (e) => A.errors?.filter((x) => (e.re ? e.re.test(x) : has(x, e.tok))) || [];
-        // What a page load keeps: the last eight different errors it threw (console.error is none).
+        // What a page load keeps: the last eight different errors it threw (console.error is none); the page's text holds
+        // eight in all, shared out between the devices with a page open that threw some (local.mjs errorList), so with
+        // several of them only each one's newest 8 / how many are promised.
         const kept = (e) => {
           const later = new Set(errs.filter((x) => x.d === e.d && x.load === e.load && x.key === e.key && x.how !== 'console' && errs.indexOf(x) > errs.indexOf(e)).map((x) => (x.re ? 'a failed fetch' : x.tok)));
-          return later.size < 8 ? true : later.size > 8 ? false : null; // (null: at the edge, either way)
+          const reporters = new Set(errs.filter((x) => x.key === e.key && x.how !== 'console' && devices[x.d].loads === x.load).map((x) => x.d)).add(e.d).size;
+          if (later.size > 8) return false;
+          return later.size < Math.min(8, Math.max(1, Math.floor(8 / reporters))) ? true : null; // (null: at the edge, either way)
         };
         for (const e of errs) {
           const dv = devices[e.d];

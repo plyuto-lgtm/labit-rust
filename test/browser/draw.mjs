@@ -14,6 +14,10 @@ const PORT = claimPort(7960, 30);
 const B = `http://localhost:${PORT}`;
 const PAGE = '<!doctype html><meta charset="utf-8"><title>d</title><style>body{margin:40px;font:20px/1.5 sans-serif} h1{margin:0 0 80px} p{width:600px;margin:0 0 60px}</style><h1 id="h">Pricing</h1><p id="a">Plans start small and grow with you</p><p id="b">Cancel any time from your account</p>';
 for (const n of ['circle', 'x', 'arrow', 'under', 'strike', 'box', 'caret', 'side', 'scribble']) fs.writeFileSync(path.join(DIR, `${n}.html`), PAGE);
+// Lines whose letters are wide: a line through them must read as crossed out wherever along the letter it passes (the
+// caret stands at the nearer edge, so on a letter's far half it is the next letter's: draw.ts letterAt reads both).
+const WIDE = { cjk: '这是一个很长的中文句子用来测试笔画的位置', emoji: 'ab 🎧🎧🎧🎧🎧🎧🎧🎧🎧🎧🎧🎧 cd', wide: 'WWWWWWWWWWWWWWWWWWWW MMMMMMMMMMMMMMMMMMMM' };
+for (const [n, t] of Object.entries(WIDE)) fs.writeFileSync(path.join(DIR, `${n}.html`), PAGE.replace(/<p id="a">.*?<\/p>/, `<p id="a">${t}</p>`));
 fs.writeFileSync(path.join(DIR, 'labit.json'), JSON.stringify({ port: PORT }));
 const server = startLab(DIR, labEnv());
 await labUp(B);
@@ -102,6 +106,29 @@ try {
       const ws = await words(p, 'a');
       const strike = await draw(p, 'strike', [[[ws.l, ws.mid], [ws.r, ws.mid + 1]]]);
       check(eng, 'a flat line through words reads as crossed out', /drawn: crossed out/.test(strike.text) && /Plans/.test(strike.text), strike.text.split('\n').filter((l) => /drawn|text in/.test(l)).join(' | '));
+
+      // The same line drawn again over the first (its 28 px hit area is above the words): still crossed out.
+      await p.keyboard.press('Escape');
+      await p.waitForTimeout(300);
+      const again = (await draw(p, 'strike', [[[ws.l, ws.mid], [ws.r, ws.mid + 1]]])).text.split('\n## ').at(-1); // the newest drawing on the page
+      check(eng, 'a line drawn over an earlier drawing through the same words still reads as crossed out', /drawn: crossed out/.test(again), again.split('\n').filter((l) => /drawn|text in/.test(l)).join(' | '));
+
+      // A line through wide letters (CJK, emoji, capitals), a hand's wobble in it, passing 3.5 px before a letter's right edge
+      // (the caret then stands at the next letter, more than 3 px away): crossed out, and on that paragraph.
+      for (const n of Object.keys(WIDE)) {
+        await go(n);
+        const [rx, my] = await p.evaluate(([k, len]) => {
+          const t = document.getElementById('a').firstChild;
+          const r = document.createRange();
+          r.setStart(t, k);
+          r.setEnd(t, k + len);
+          const b = r.getBoundingClientRect();
+          return [b.right, (b.top + b.bottom) / 2];
+        }, n === 'emoji' ? [9, 2] : [6, 1]);
+        const wobble = [-75, -45, -15, 15, 45, 75].map((dx, k) => [rx - 3.5 + dx, my + (k % 2 ? 1.5 : -1.5)]);
+        const wide = (await draw(p, n, [wobble])).text.split('\n## ').at(-1); // the newest drawing on the page
+        check(eng, `a wobbly line through ${n} letters reads as crossed out, on their paragraph`, /drawn: crossed out/.test(wide) && /element: <p id="a"/.test(wide), wide.split('\n').filter((l) => /drawn|element:/.test(l)).join(' | '));
+      }
 
       await go('box');
       const bb = await box(p, 'b');

@@ -1,5 +1,5 @@
 {
   "$schema": "https://unpkg.com/knip@5.66.0/schema.json",
-  "entry": ["local.mjs", "src/comments.js", "src/widget/components.ts", "src/widget/switcher.ts", "src/widget/draw.ts", "src/widget/sections.ts", "src/widget/motion.ts", "src/board/overlay.ts", "src/widget/pics.ts", "lib/comments-api.mjs", "lib/board.ts", "lib/build.ts", "lib/boardact.ts", "scripts/*.mjs", "ci/*.mjs", "test/**/*.mjs", "bench/*.mjs"],
+  "entry": ["local.mjs", "src/comments.js", "src/widget/components.ts", "src/widget/switcher.ts", "src/widget/draw.ts", "src/widget/sections.ts", "src/widget/motion.ts", "src/board/overlay.ts", "src/widget/pics.ts", "src/widget/attach.ts", "lib/comments-api.mjs", "lib/board.ts", "lib/build.ts", "lib/boardact.ts", "scripts/*.mjs", "ci/*.mjs", "test/**/*.mjs", "bench/*.mjs"],
   "project": ["lib/**/*.ts", "lib/**/*.mjs", "src/**/*.{ts,js}", "scripts/**/*.mjs", "ci/**/*.mjs"]
 }

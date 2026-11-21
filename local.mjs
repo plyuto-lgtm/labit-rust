@@ -18,13 +18,16 @@ import { alive, setWifi } from './lib/labcall.ts';
 import { DO_IT, PROGRESS_MS, UNMATCHED, numberOf, slim, upgrade, VERSION as SCHEMA } from './lib/schema.mjs';
 import { sameKey } from './lib/comments-api.mjs';
 import { cut } from './lib/cut.mjs';
+import { sourceLines } from './lib/source-line.mjs';
 import { isNavigation } from './lib/pageload.ts';
 import { loadSettings, changedShortcuts, seedActions, savePersonal } from './lib/settings.ts';
 import { runCommand } from './lib/commands.ts';
 import { findDevServer as find, tilde, othersNote } from './lib/devserver.ts';
 import * as B from './lib/board.ts';
+import { withBoard } from './lib/htmlspot.ts';
 import * as act from './lib/boardact.ts';
 import { imageInfo, MAX_IMAGE } from './lib/images.mjs';
+import { IMAGE_TYPES, IMAGES_SAID, imageLine, imageName, imagesOf, MAX_IMAGES, wordsOf } from './lib/schema.mjs';
 import { proxy as makeProxy } from './lib/proxy.ts';
 import { newer, fetchNotes } from './lib/update.ts';
 
@@ -54,64 +57,26 @@ const newerBuild = () => {
     return false;
   }
 };
-const HELP = `labit ${VERSION}: comment on local pages; your agent (Claude, Codex, Cursor…) answers on the pins.
-Run as npx @leonidstern/labit …, or node local.mjs … from a clone. Agents: labit skill prints how to work with it.
+const HELP = `labit ${VERSION}: comment on local pages; your agent answers on the pins (labit skill: how).
 
-  labit [--name "topic"] [--proxy [port]] [--port 4400] [--wifi | --no-wifi] [--no-open] [--new] [folder]
-      Run it in your project. With a dev server (Astro, Next, Vite…) running there, comments go on top of it
-      (--proxy <port> picks one), whatever HTML files the project has. A folder of HTML files with no dev server is served as it is.
-      --wifi: phones and laptops on the same wifi comment as guests, each with a one-time link (labit invite);
-      pages travel in the clear. On a running lab it restarts in place; --no-wifi turns it off.
-      A folder a lab already serves opens in that lab; --new starts a separate one.
-      --name: the lab's topic, shown in ⌘K instead of the folder.
-  labit --native [--name "app"] [--port 4436]
-      A lab for an app that draws its own window (GPUI, SwiftUI): no dev server, no HTML. The app posts its pins
-      over HTTP (docs/native.md); pages are the ones with pins (/app). The agent answers as on any lab.
-  labit publish <page.html | folder> [--name "topic"]
-      Show a page like an Artifact: it goes into your one pages lab (pagesFolder, ~/lab-pages); publish again
-      to update, same link. --dev: for working on labit itself (restarts when local.mjs or lib/ change).
-  labit list
-      Every lab on this computer: address, folder, pages, open comments. Check it before starting one.
-  labit pages [--all]
-      Write .lab/lab-pages.md: this folder's labs (--all: every lab) as links.
-  labit settings
-      Each setting, its value and source. See docs/settings.md.
-  labit skill
-      How an agent works with labit, printed: for an agent without the plugin.
-  labit preview [folder]
-      Add "lab" to .claude/launch.json, so the Claude desktop app opens the pages in its preview pane.
+  labit [folder] [--name topic] [--proxy [port]] [--port 4400] [--wifi|--no-wifi] [--no-open] [--new]
+  labit --native [--name topic] [--port 4436]   (an app that draws its own window posts its pins: docs/native.md)
+  labit publish <page.html|folder> [--name topic] [--dev]
   labit invite [name] [--page /path]
-      A one-time link for a phone on the same wifi (one use, ten minutes); turns the wifi on first if needed.
+  labit list | pages [--all] | settings | skill | update | preview [folder]
 
-For the agent, from the project:
-  labit wait [--bg] [--timeout 1500] [--pages /a,/b] [--name <project>] [--model <your model>]
-      Ends with the next comment, printed in full. Run it in the background with --bg: without it a wait ends
-      after a minute, so the person's turn is never held open. Never wrap it in a shell loop: that keeps
-      listening after the session is gone. --pages: only these pages' pins. A pin with no reply for 2 minutes
-      goes to the next wait.
-  labit reply <id> "what you did" [--done | --on-it | --question] [--resolve] [--wait] [--page /path]
-      Answer on the pin by the id wait printed. --done closes it; --on-it: working; --question: you need the
-      person; --wait listens again right after.
-  labit reply <id> --progress "what you're on now"
-      One short status line for long work; an answer clears it.
-  labit reply <id> "question" --choice "A words" [--hint "why"] --choice "B words" [--recommend B]
-      2 to 6 choices; the pick comes back in your next wait as "Picked B: …". Make that change, then resolve.
+For the agent:
+  labit wait [--bg] [--timeout 1500] [--pages /a,/b] [--name project] [--model model]
+  labit reply <id> "text" [--done|--on-it|--question] [--resolve] [--wait] [--page /path]
+  labit reply <id> --progress "status" | "question" --choice A [--hint why] --choice B [--recommend B]
   labit resolve <id> [--page /path]
-  labit pin <selector> "text" [--page /path] [--at x,y] [--quote "words"] [--question | --choice "A" --choice "B" [--recommend B]] [--no-check]
-      Your own pin, one per point. --at: shares of the element (default 0.5,0.5). --quote: pin those words.
-  labit pin --file points.json [--page /path]
-      A list of { "selector", "text", "quote"?, "at"?, "page"?, "choices"?, "recommend"?, "question"? }.
-  labit pin --board <name> [--frame <id>] <selector|-> "text" [--at x,y]
-      On a board: a frame's element, a frame (-), or the board; --at in pixels.
-  labit update
-      Move this folder's lab onto the newer release its ⋯ menu offers.
-  labit board new|add|move|pick|list ...
-      Options, widths and flows as frames: new "<topic>" --of /page --variants 3 (edit the copies in
-      .lab/boards/<board>/) | --widths 390,820,1280 | --flow /a,/b,/c. add <board> <frame|/page|file.html|image>
-      [--label] [--width] [--after]; move <board> <frame> --after <frame>; pick <board> <frame>; list [<board>].
+  labit pin <selector> "text" [--page /path] [--at x,y] [--quote words] [--question|--choice …] [--no-check]
+  labit pin --file points.json | --board <name> [--frame <id>] <selector|-> "text"
+  labit board new topic --of /page [--variants 3|--widths 390,820|--flow /a,/b] | list [board]
+  labit board add <board> <frame|/page|file|image> [--label] [--width] [--after]
+  labit board move <board> <frame> --after <frame> | pick <board> <frame>
 
-.lab/ in the folder holds the comments (comments.md, comments/), archive/, state.json, server.json
-and key (owner-only). Delete it to start over.`;
+.lab/ holds the comments and state; delete it to start over.`;
 
 // ---------- arguments ----------
 const { opts, pos, unknownFlags } = parseArgs(process.argv.slice(2));
@@ -334,6 +299,9 @@ if (!opts.proxy && !alreadyRunning && !NATIVE) {
 
 const LAB = path.join(ROOT, '.lab');
 const STORE = path.join(LAB, 'comments'); // the comments, one file per page
+const ATTACH = path.join(LAB, 'attachments'); // the pictures comments carry: <comment id>-<n>.<type>; .staged/ holds those sent and not yet in a comment
+const STAGED = path.join(ATTACH, '.staged');
+const STAGE_LIFE = 15 * 60e3; // a token is good for as long as a nonce is
 const ARCHIVE = path.join(LAB, 'archive'); // done threads a month old, one file per page
 const SERVER = path.join(LAB, 'server.json');
 // Boards (lib/board.ts): pages side by side as frames, in .lab/boards.
@@ -547,6 +515,9 @@ const handoff = Object.create(null);
 const outdated = []; // pages whose file is in an older shape: written again in today's once the lab is up
 // Each page's own file, and what the disk knows that file by (see rehome): kept in its comments file as file and fid.
 const homes = new Map();
+// Pages whose file was renamed, to be moved (flushMoves, below, once the lab's state is read: the first look at the files may come before).
+const moves = [];
+let movesReady = false;
 // A lab last run before 16 Nov kept every page in one comments.json; labit 0.6 moves it into comments/. This one
 // doesn't read it: it says how to move it and stops, so those comments are never left behind unnoticed.
 if (!fs.existsSync(STORE) && fs.existsSync(path.join(LAB, 'comments.json')))
@@ -695,7 +666,7 @@ function rehome() {
     }
     homes.delete(page);
     homes.set(to, [fileIndex.get(to), fid]);
-    for (const mine of Object.values(reads)) if (mine[page]) mine[to] = [...(mine[to] || []), ...mine[page]];
+    moves.push([page, to]);
     for (const mine of Object.values(sections)) {
       if (!mine[page]) continue;
       mine[to] ||= mine[page];
@@ -706,6 +677,7 @@ function rehome() {
     for (const p of [page, to]) persist(p).catch((e) => console.error('[lab] could not save comments:', e.message));
     broadcast();
   }
+  if (movesReady) flushMoves();
 }
 // A path as the disk spells it (src/pages/Orders.jsx), though a case-insensitive disk also found "orders.jsx".
 const realCase = (rel) => {
@@ -774,10 +746,29 @@ const pageErrors = new Map(); // page -> who reported (deviceOf) -> { list: up t
 const DEVICE_COOKIE = () => `lab_dev_${PORT}`;
 const deviceId = (req) => new RegExp(`(?:^|;\\s*)${DEVICE_COOKIE()}=([0-9a-f]{16})(?:\\s*;|$)`).exec(req.headers.cookie || '')?.[1] || '';
 const deviceOf = (req) => (deviceId(req) ? `browser ${deviceId(req)}` : `${guestOk(req) || String(req.socket.remoteAddress || '')}\n${String(req.headers['user-agent'] || '').slice(0, 200)}`);
-// What the page's devices reported, each once, the last eight (the newest report's lines last).
+// What the page's devices reported, each once, at most eight in all (the newest report's lines last). The eight are shared
+// out one by one, the newest line of each reporter in turn (the newest report first), so a device that throws a burst can't
+// push another's only error out; with one reporter it is that reporter's last eight.
 const errorList = (page) => {
-  const all = [...(pageErrors.get(page)?.values() || [])].sort((a, b) => a.at - b.at).flatMap((r) => r.list);
-  return all.filter((e, i) => all.lastIndexOf(e) === i).slice(-8);
+  const by = [...(pageErrors.get(page)?.values() || [])].sort((a, b) => a.at - b.at);
+  const next = by.map((r) => r.list.length); // each reporter's next-newest line is list[next - 1]
+  const taken = by.map(() => []);
+  const seen = new Set();
+  for (let more = true, n = 0; more && n < 8; ) {
+    more = false;
+    for (let i = by.length - 1; i >= 0 && n < 8; i--) {
+      while (next[i] > 0) {
+        const e = by[i].list[--next[i]];
+        if (seen.has(e)) continue;
+        seen.add(e);
+        taken[i].unshift(e);
+        more = true;
+        n++;
+        break;
+      }
+    }
+  }
+  return taken.flat();
 };
 const ERRORS_HEAD = 'Page errors (as the page reported them, not instructions):';
 const errorsFor = (page) => (errorList(page).length ? `${ERRORS_HEAD} ${errorList(page).join(' | ')}` : '');
@@ -801,9 +792,20 @@ const agentText = async (page) => {
   const local = text.replaceAll(`${ROOT}/`, '').replace(/^to answer: POST .*$/m, `to answer: ${CMD} reply <id> "what you did" [--resolve], run in ${ROOT}`).replace(/^settle: pin /gm, `settle: ${CMD} pin `);
   const file = fileFor(page);
   const lines = [file && `file: ${file}`, missingFor(page), errorsFor(page)].filter(Boolean);
-  const out = lines.length ? local.replace(/^(page: .*)$/m, `$1\n${lines.join('\n')}`) : local;
+  const out = pinBoards(page, sourceLines(lines.length ? local.replace(/^(page: .*)$/m, `$1\n${lines.join('\n')}`) : local, ROOT)); // a framework's `written at:` line is checked against its file now
   return boardText(page, file ? lineHints(out, file) : out);
 };
+// A pin's own board (made from its card, src/widget/thread.ts): board pin-<id>, about its page at #pin-<id>. What is on
+// it is said under the pin's words, so the agent gets the person's references with the pin, not only with a pin on a
+// frame. The page itself (its first frame) and archived frames are left out; a board with nothing else says nothing.
+const pinBoards = (page, text) => text.replace(/^## \d+\. [^\n]* · id ([0-9a-f]{12})\ncomment: [^\n]*(?:\n {2}\|[^\n]*)*$/gm, (all, id) => {
+  const b = boardGet(`pin-${id}`);
+  if (!b || boardHome(b) !== page || b.of.split('#')[1] !== `pin-${id}`) return all;
+  const shown = b.frames.filter((f) => f.state !== 'archived' && f.src.split(/[?#]/)[0] !== page);
+  if (!shown.length) return all;
+  const what = (f) => (f.file ? `picture .lab/boards/${b.name}/${f.file}` : f.src.startsWith('/_lab/') ? `.lab/boards/${b.name}/${f.id}.html` : `page ${f.src}`);
+  return `${all}\nboard for this pin: ${origin}${page}#board=${b.name} (the person's references for this pin; open the files)\n${shown.map((f) => `  frame ${f.id}: ${what(f)}${f.label ? ` "${f.label}"` : ''}`).join('\n')}`;
+});
 // A plain HTML page: each comment's element is found in the file by its words, and its line said next to it
 // (`in file: pricing.html:30`), so an agent opens the file there instead of searching (sims, 20 Nov: a drawing's
 // action took 4-5 tool calls, most of them looking for the spot).
@@ -846,16 +848,25 @@ const boardText = async (page, text) => {
   const b = page.startsWith('/_board/') && boardGet(name);
   if (b) text = text.replace(/^page: .*$/m, `page: ${origin}/_lab/board/${name}${frame ? `/${frame}` : ''}`);
   const of = (board) => (board.of ? fileFor(boardPage(board.of.split('#')[0])) : null);
+  // A frame's open pins: those made inside its own page copy, and those on the frame itself (a picture, a live page), which are
+  // the board's (its own address, or the page it is over).
+  const openOn = (bd, g) => [...(g.src.startsWith('/_lab/') ? commentsOf(`/_board/${bd.name}/${g.id}`) : []), ...[`/_board/${bd.name}`, boardHome(bd)].filter(Boolean).flatMap((k) => commentsOf(k).filter((c) => c.anchor?.board === bd.name && c.anchor.frame === g.id))].filter((c) => !c.parent && !c.resolved).length;
+  const listOf = (bd) => act.text(bd, { origin, file: of(bd), home: boardHome(bd) != null, pins: (g) => openOn(bd, g) });
   const f = b && frame && b.frames.find((g) => g.id === frame);
   if (f) text = text.replace(/^(page: .*)$/m, `$1\n${act.frameLine(b, f, of(b))}`);
-  else if (b && !frame) text = `${act.text(b, { origin, file: of(b), home: boardHome(b) != null, pins: (g) => (g.src.startsWith('/_lab/') ? commentsOf(`/_board/${name}/${g.id}`).filter((c) => !c.parent && !c.resolved).length : 0) })}\n${text}`;
+  else if (b && !frame) text = `${listOf(b)}\n${text}`;
+  else if (!page.startsWith('/_board/')) {
+    // Pins on a page that name a board (made on it, over this page): its frames follow, as they lead the board's own text.
+    const named = [...new Set([...text.matchAll(/^on: the board (\S+) over this page/gm)].map((m) => m[1]))].map(boardGet).filter(Boolean);
+    if (named.length) text = `${text.trimEnd()}\n\n${named.map((bd) => `# The frames of board ${bd.name}, which the pins above name\n${listOf(bd)}`).join('\n')}`;
+  }
   let cur = page.startsWith('/_board/') ? name : ''; // a pin on a page's board says which board in the line before
   return text.split('\n').map((l) => l.replace(/^on: the board (\S+) over this page/, (all, n) => ((cur = n), all)).replace(/^(near: frame |seen on: board ([^,\n]+), frame )([a-z][a-z0-9]*)(.*)$/, (all, lead, named, id, tail) => {
     const bd = (named || cur) && boardGet(named || cur);
     const g = bd?.frames.find((x) => x.id === id);
     if (!g) return all;
     const more = lead === 'near: frame ' && g.state === 'picked' ? `\n${act.frameLine(bd, g, of(bd)).split('\n')[1]}` : '';
-    return `${lead}${id}${g.label ? ` "${g.label}"` : ''} (${act.shown(bd, g)} at ${g.kind === 'image' ? `${g.iw}×${g.ih} px shown at ` : ''}${g.w}×${g.h})${tail}${more}`;
+    return `${lead}${id}${g.label ? ` "${g.label}"` : ''} (${act.shown(bd, g)} at ${act.sized(g)}${g.state === 'archived' ? ', archived' : ''})${tail}${more}`;
   })).join('\n');
 };
 
@@ -1490,6 +1501,23 @@ try {
 // .lab/boards is watched by the lab itself: the project watcher skips dot folders and is off behind a dev server. A saved
 // variant is a hot update of that frame's own page alone; a changed board file is a new `boards` count (with which),
 // and neither touches `files`, so no page reloads for them.
+// A deleted pin takes its own board with it (pin-<id>, made with +board): the board and its pictures in .lab/boards/,
+// and the <lab-board> section the lab wrote into the page's file, so no board is left on a page with no pin for it
+// (Leo, 21 Nov: "no stray board").
+const dropBoard = (page, id) => {
+  const name = `pin-${id}`;
+  if (boardGet(name)?.of !== `${page}#${name}`) return; // a board name is checked as it is read (B.read): no path in it
+  for (const f of [`${name}.json`, name]) fs.rmSync(path.join(B.dirOf(ROOT), f), { recursive: true, force: true });
+  boardCache.clear();
+  boardList = null;
+  // Only the line the lab wrote (place, below) is taken out: under --proxy or in a file it never wrote, there is none.
+  try {
+    const full = path.join(ROOT, fileFor(page));
+    const src = fs.readFileSync(full, 'utf8');
+    const out = src.replace(new RegExp(`\\n[ \\t]*<lab-board name="${name}"></lab-board>`), '');
+    if (out !== src) fs.writeFileSync(full, out);
+  } catch {} // no file for the page, or it can't be written: the section stays, and shows nothing without its board
+};
 let boardList = null; // every stored board, kept like the cache below
 const boardCache = new Map(); // name -> the stored board and when it was written (cleared when its file changes)
 const boardGet = (name) => {
@@ -1524,6 +1552,7 @@ function gather(b) {
   let num = Math.max(0, ...commentsOf(to).filter((c) => !c.parent).map((c) => c.num || 0));
   for (const c of commentsOf(own)) if (!into.has(c.id)) into.set(c.id, JSON.stringify(c.parent || !c.num ? c : { ...c, num: ++num }));
   db.delete(`lab:comments:${own}`);
+  moveState(own, to); // what the board's own page had read, opened or been claimed for goes with its pins
   for (const p of [own, to]) persist(p).catch((e) => console.error('[lab] could not save comments:', e.message));
   return true;
 }
@@ -1583,6 +1612,52 @@ const claim = (pages, who = '') => {
 };
 stateParts.claims = () => Object.fromEntries([...claims].filter(([, at]) => Date.now() - at < CLAIM_MS));
 stateParts.claimOwners = () => Object.fromEntries([...claimOwner].filter(([p, who]) => who && Date.now() - (claims.get(p) || 0) < CLAIM_MS));
+// A page's own state follows its pins to another key (a renamed file; a board's pins adopted by the page it is over): when it was
+// opened, archived, claimed by a wait, and each person's read marks (merged, the old key dropped, saved), so what was read stays read.
+function moveState(from, to) {
+  const at = opened.get(from);
+  if (at) {
+    if (!(opened.get(to) > at)) opened.set(to, at);
+    opened.delete(from);
+  }
+  if (archivedPages.has(from)) {
+    if (!archivedPages.has(to)) archivedPages.set(to, archivedPages.get(from));
+    archivedPages.delete(from);
+  }
+  if (claims.has(from)) {
+    claims.set(to, Math.max(claims.get(from), claims.get(to) || 0));
+    claims.delete(from);
+    if (claimOwner.has(from)) claimOwner.set(to, claimOwner.get(from));
+    claimOwner.delete(from);
+  }
+  for (const mine of Object.values(reads)) {
+    if (!mine[from]) continue;
+    mine[to] = [...new Set([...(mine[to] || []), ...mine[from]])];
+    delete mine[from];
+  }
+  saveReads();
+}
+// Renamed pages: their state moves, and the boards about them follow (a board's `of` and the frames that are the page), so the board
+// still opens over its page with its pins, not pinless on a page that is gone.
+function flushMoves() {
+  for (const [from, to] of moves.splice(0)) {
+    moveState(from, to);
+    const rest = (p) => (/[?#]/.exec(p) ? p.slice(/[?#]/.exec(p).index) : '');
+    const is = (p) => typeof p === 'string' && boardPage(p.split(/[?#]/)[0]) === from;
+    for (const n of B.names(ROOT)) {
+      const b = boardGet(n);
+      if (!b || !(is(b.of) || b.frames.some((f) => is(f.src)))) continue;
+      B.save(ROOT, { ...b, rev: b.rev + 1, ...(is(b.of) ? { of: to + rest(b.of) } : {}), frames: b.frames.map((f) => (is(f.src) ? { ...f, src: to + rest(f.src) } : f)) });
+      boardCache.delete(n);
+      boardList = null;
+      console.log(`[lab] board ${n} follows ${from} to ${to}`);
+    }
+  }
+  watchBoards();
+  broadcast();
+}
+movesReady = true;
+flushMoves();
 // A name just given, or the files of before 19 Nov still there: written now, not at the first change.
 if (oldStateFiles.length || givenName !== (labState.name || '')) writeState();
 // The last wait on each set of pages (its key), to tell a second session on the same pages that it isn't alone.
@@ -1705,7 +1780,8 @@ function threadText(page, root, replies, fresh, spot, when) {
   const from = Math.max(0, Math.min(replies.length - THREAD_TAIL, first < 0 ? Infinity : first));
   const out = [
     `## ${page} · thread id ${root.id}${root.resolved ? ' (resolved)' : ''}`,
-    `- ${who(root)} · ${when(root)} · opened · id ${root.id}: ${body(root.text)}`,
+    `- ${who(root)} · ${when(root)} · opened · id ${root.id}: ${body(wordsOf(root))}`,
+    ...imagesOf(root).map((i) => `    ${imageLine(root, i)}`),
     ...spot.map((l) => `  ${l}`),
   ];
   if (from) out.push(`- … ${from} earlier message${from === 1 ? '' : 's'} (read them first, the whole thread: http://localhost:${PORT}/_lab/agent${page})`);
@@ -1713,7 +1789,8 @@ function threadText(page, root, replies, fresh, spot, when) {
     const state = r.session ? STATE[r.intent] : '';
     // A pick on a question with choices says which question it answers (the words already say which choice).
     const pick = r.picked ? ` (their pick on your question id ${r.picked.of})` : '';
-    out.push(`- ${who(r)} · ${when(r)}${state ? ` · ${state}` : ''} · id ${r.id}: ${body(r.text)}${pick}${r.doit ? DO_IT(r.name) : ''}${fresh.has(r.id) ? '  ← new' : ''}`);
+    out.push(`- ${who(r)} · ${when(r)}${state ? ` · ${state}` : ''} · id ${r.id}: ${body(wordsOf(r))}${pick}${r.doit ? DO_IT(r.name) : ''}${fresh.has(r.id) ? '  ← new' : ''}`);
+    for (const i of imagesOf(r)) out.push(`    ${imageLine(r, i)}`);
   }
   return out.join('\n');
 }
@@ -1734,7 +1811,11 @@ const rulesOnce = () => {
 // (handoff[id][1]), so a reply goes in the short thread form only to the session that already has its thread.
 const whoOf = (s) => s?.id || s?.name || '';
 // What people wrote that no wait has been handed yet.
-const freshIn = (scope) => scope.flatMap((page) => commentsOf(page).filter((c) => !c.session && !(c.resolved && !c.parent) && stamp(c) > (handoff[c.id]?.[0] || seen)).map((c) => ({ page, c })));
+// A pin sent with +board (its board opens as it goes, src/comments.js) waits until the person closes that board (or 20
+// minutes), so the agent gets it with what was put on it, not before.
+const filled = new Set(); // ids of +board pins whose board was closed
+const filling = (c) => !c.parent && /^\+board\b/.test(c.anchor?.act || '') && !filled.has(c.id) && Date.now() - Date.parse(c.createdAt) < 1200000;
+const freshIn = (scope) => scope.flatMap((page) => commentsOf(page).filter((c) => !c.session && !(c.resolved && !c.parent) && !filling(c) && stamp(c) > (handoff[c.id]?.[0] || seen)).map((c) => ({ page, c })));
 async function unseen(scope = pages(), who = '') {
   const fresh = freshIn(scope);
   // A safety net: threads handed over more than 3 minutes ago that still have no answer after the person's last
@@ -1794,13 +1875,13 @@ async function unseen(scope = pages(), who = '') {
     if (!root) continue;
     // The spot, as the new-comment block says it: its lines between the comment and the replies (lean, as there).
     const block = (await threadsText(page, [id]))?.text.split('\n## ').slice(1).join('');
-    const spot = (block || '').split('\n').slice(1).filter((l) => !/^(comment:|reply:|from:| {2}\|)/.test(l) && l.trim());
+    const spot = (block || '').split('\n').slice(1).filter((l) => !/^(comment:|reply:|from:|image:| {2}(\||image:))/.test(l) && l.trim());
     lines.push(threadText(page, root, all.filter((c) => c.parent === id), new Set(group.map((f) => f.c.id)), spot, when));
     sent.add(key);
   }
   if (lines.length) blocks.push(`# New replies (in their threads; the new ones marked ← new)\n\n${lines.join('\n\n')}`);
   if (missed.length) {
-    blocks.push(`# Still waiting for your answer (handed to you earlier)\n${missed.map(({ page, c, sign }) => `- ${page} · id ${c.id}${c.from === 'wifi guest' ? ' (wifi guest)' : ''} "${cut(c.text.replace(/\s+/g, ' '), 90)}" · no sign for ${Math.floor((now - Date.parse(sign[0])) / 60000)} min${sign[1] ? `, last: ${sign[1]}` : ''}`).join('\n')}`);
+    blocks.push(`# Still waiting for your answer (handed to you earlier)\n${missed.map(({ page, c, sign }) => `- ${page} · id ${c.id}${c.from === 'wifi guest' ? ' (wifi guest)' : ''} "${cut(wordsOf(c).replace(/\s+/g, ' '), 90)}" · no sign for ${Math.floor((now - Date.parse(sign[0])) / 60000)} min${sign[1] ? `, last: ${sign[1]}` : ''}`).join('\n')}`);
     for (const { c } of missed) (handoff[c.id] ||= ['', null])[2] = new Date(now).toISOString();
     saveHanded();
   }
@@ -1836,6 +1917,7 @@ async function unseen(scope = pages(), who = '') {
     standing +
     lost.map(({ page, c }) => `\n${UNMATCHED(c.id, page, c.anchor.selector)}`).join('') +
     (ticks.length ? `\nticked: ${ticks.length} of your ${own} pins (resolved by people since your last wait: ${ticks.map(({ page, c }) => `${page} id ${c.id} "${cut(c.text.replace(/\s+/g, ' '), 50)}"`).join('; ')}). Nothing to do.` : '') +
+    ([...sent].some((k) => { const [pg, id] = k.split('\n'); return commentsOf(pg).some((c) => (c.id === id || c.parent === id) && imagesOf(c).length); }) ? `\n${IMAGES_SAID}` : '') +
     (given.some((f) => f.c.picked) ? `\nA pick ("Picked B: …"): make that change, then ${CMD} resolve <id> with no words; words only if something isn't obvious or you couldn't do it.` : '') +
     (suggest ? `\nA reply about how you answered rather than the work (too long, unclear, didn't show or link it, the same misread twice): answer it and add --suggest-rule "<one short rule>"; they keep it with a tap. Not for the work itself or a one-off correction.` : '') +
     (rules || '');
@@ -2255,7 +2337,8 @@ const labInfo = () => {
   return {
     name: LAB_NAME, root: ROOT, port: PORT, wifi: WIFI, proxy: PROXY?.origin || null, browser: openTabs() > 0, mode: session ? mode : 'away', listening: session?.name || null, heard: heard(),
     started: STARTED,
-    boards: B.names(ROOT).flatMap((name) => { const b = boardGet(name); return b ? [{ name, url: `${origin}/_lab/board/${name}`, frames: b.frames.filter((f) => f.state !== 'archived').length, of: b.of || null, at: b.at }] : []; }),
+    // A pin's own board (pin-<id>) is opened from its pin, not listed with the lab's boards.
+    boards: B.names(ROOT).flatMap((name) => { const b = boardGet(name); return b && !(name.startsWith('pin-') && b.of?.includes('#pin-')) ? [{ name, url: `${origin}/_lab/board/${name}`, frames: b.frames.filter((f) => f.state !== 'archived').length, of: b.of || null, at: b.at }] : []; }),
     created: created(),
     pages: list.map(({ key, ...p }) => {
       const at = lastAt(key, p.file ? path.join(ROOT, p.file) : '');
@@ -2267,11 +2350,35 @@ const labInfo = () => {
 // when the lab chose them); no query lists the boards. PUT (this computer, JSON) replaces it: it carries the rev it was
 // made from (409 when the file moved on) and may not drop a frame. POST {action, …} is the agent's (labit board …): new,
 // add, move, pick, list; the answer is {text, board} (what the command prints), or 422 {error, text}.
+/** The board a page starts with, before one is stored. @type {(name: string, page: string) => B.Board} */
+const boardFor = (name, page) => ({ v: 1, name, rev: 0, of: page, frames: [{ id: 'a', src: page, w: 1440, h: 900, state: 'live' }] });
 const boardApi = async (req, res, url) => {
   const json = (code, data) => answer(res, data, code);
   if (req.method === 'POST') {
-    if (!isAgent(req) && !(isLoopback(req) && keyOk(req))) return plain(res, 403, 'forbidden');
+    if (!isAgent(req) && !isOwner(req)) return plain(res, 403, 'forbidden');
     const b = await sent(req);
+    const pinOf = /^pin-([0-9a-f]{12})$/.exec(String(b.name))?.[1];
+    const page = typeof b.of === 'string' ? b.of.split('#')[0] : '';
+    // The pin's board as a section of the page, after the element pinned: <lab-board name> written into the page's own
+    // file, which the widget fills with the board (Leo, 21 Nov: "add board section into page", "its html like artifact why
+    // it would be deployed"). The one write the lab makes outside .lab/, and only of a page's .html file served as it is.
+    if (b.action === 'place') {
+      const file = !PROXY && pinOf && b.of === `${page}#pin-${pinOf}` && fileFor(page);
+      const at = Array.isArray(b.path) && b.path.length <= 40 && b.path.every((s) => Array.isArray(s) && typeof s[0] === 'string' && /^[a-z][a-z0-9-]*$/.test(s[0]) && Number.isInteger(s[1]) && s[1] > 0) ? b.path : null;
+      if (!file || !/\.html?$/i.test(file) || file.startsWith('.lab/') || !at) return json(422, { error: 'only a page served from its own .html file takes a board section' });
+      const full = path.join(ROOT, file);
+      const src = fs.readFileSync(full, 'utf8');
+      const out = withBoard(src, String(b.name), at, typeof b.words === 'string' ? b.words.slice(0, 200) : '');
+      if (out === null) return json(422, { error: `the pinned element isn't in ${file} as the page has it` });
+      if (out !== src) fs.writeFileSync(full, out);
+      return json(200, { ok: true, file });
+    }
+    // A pin's board closed (its +board pin goes to the agent now, with what is on it).
+    if (b.action === 'ready') {
+      if (pinOf) filled.add(pinOf);
+      wake();
+      return json(200, { ok: true });
+    }
     const env = { root: ROOT, origin, proxied: Boolean(PROXY), open: (key) => commentsOf(key).filter((c) => !c.parent && !c.resolved).length, titleOf: (p) => { const f = fileFor(boardPage(p)); return f ? titleOf(path.join(ROOT, f)) : ''; }, fileOf: (p) => fileFor(boardPage(p)) };
     const out = act.act(String(b.action), b, env);
     boardCache.clear();
@@ -2289,9 +2396,9 @@ const boardApi = async (req, res, url) => {
     const was = boardGet(name);
     if (was) return json(200, { ...B.place(was), exists: true, home: boardHome(was) });
     if (!page) return json(404, { error: `no board ${name}` });
-    return json(200, { ...B.place({ v: 1, name, rev: 0, of: page, frames: [{ id: 'a', src: page, w: 1440, h: 900, state: 'live' }] }), exists: false });
+    return json(200, { ...B.place(boardFor(name, page)), exists: false });
   }
-  if (req.method !== 'PUT' || !isLoopback(req)) return plain(res, 405, 'GET, PUT (this computer) or POST');
+  if (req.method !== 'PUT' || !(isLoopback(req) || isDevice(req))) return plain(res, 405, 'GET, PUT (an owner\'s device) or POST');
   // The body first, then read, check and write with nothing awaited between: two saves made from the same rev whose
   // requests were both open before either body came (two tabs, a slow link) were both taken, the second over the first.
   const body = await sent(req);
@@ -2305,34 +2412,59 @@ const boardApi = async (req, res, url) => {
   watchBoards();
   return json(200, { ...B.place(boardGet(name)), exists: true });
 };
-// POST /_lab/api/image?board=<board>[&page=/x][&x=<wx>&y=<wy>][&label=…]: the body is a picture's bytes (a pasted or dropped
-// image), put on the board as a frame of its own: the board's browser key (or the agent's) writes, a --wifi guest never does.
-// Auth, then the query, then the length, then the body: a refused sender's bytes are never read.
-const boardImage = async (req, res, url) => {
+// A picture sent to POST /_lab/api/image and not yet in a comment: its file and what it is, or null when it is gone or too old.
+const stagedFile = (token) => {
+  for (const ext of IMAGE_TYPES) {
+    const file = path.join(STAGED, `${token}.${ext}`);
+    try {
+      const st = fs.statSync(file);
+      if (Date.now() - st.mtimeMs > STAGE_LIFE) return null;
+      const info = B.imageAt(file);
+      return info?.ext === ext ? { file, type: ext, w: info.w, h: info.h, size: st.size } : null;
+    } catch {}
+  }
+  return null;
+};
+// Pictures sent and never used are swept (a little after their token ran out): at the start and once a day.
+const sweepStaged = () => {
+  try {
+    for (const f of fs.readdirSync(STAGED)) if (Date.now() - fs.statSync(path.join(STAGED, f)).mtimeMs > STAGE_LIFE + 5 * 60e3) fs.rmSync(path.join(STAGED, f), { force: true });
+  } catch {}
+};
+sweepStaged();
+setInterval(sweepStaged, 86400e3).unref();
+// POST /_lab/api/image: the body is a picture's bytes (pasted, dropped or picked), type = its content-type. With
+// ?board=<board>[&page=/x][&x=<wx>&y=<wy>][&label=…] it is put on that board as a frame of its own; without, it is kept
+// for the comment about to be sent (ATTACH below) and answered with a token. The owner (this computer's browser with its
+// key, or the agent, on a board) and a wifi guest with a pass may (a guest's frame says so, and only on a board that is
+// stored); anyone else is refused before a byte is read: auth, then the query, then the length, then the body.
+const imageApi = async (req, res, url) => {
   const json = (code, data) => answer(res, data, code);
   if (req.method !== 'POST') return plain(res, 405, 'POST');
-  // The owner (this computer's browser with its key, or the agent) puts a picture up to 8 MB; so does a wifi guest with a pass
-  // (their frame is marked as theirs), on a board that is already stored. Anyone else is refused before a byte is read.
-  const owner = isAgent(req) || (isLoopback(req) && keyOk(req));
-  const guest = !owner && WIFI && !isLoopback(req) && Boolean(guestOk(req));
-  if (!owner && !guest) return plain(res, 403, 'forbidden');
-  const name = url.searchParams.get('board') || '';
+  const agent = isAgent(req);
+  const owner = agent || isOwner(req);
+  const guest = isDevice(req); // its frames say so (from a wifi guest), as its comments do
+  const name = url.searchParams.get('board');
+  if ((!owner && !guest) || (agent && name === null)) return plain(res, 403, 'forbidden');
   const page = url.searchParams.get('page');
   const at = ['x', 'y'].map((k) => url.searchParams.get(k));
-  if (!B.NAME.test(name) || (page && !B.labPath(page)) || (at.some((v) => v !== null) && at.some((v) => v === null || !Number.isFinite(+v)))) return json(400, { error: 'name a board (?board=), a page like /x and a point (?x=&y=)' });
-  const type = req.headers['content-type'];
-  if (guest && !boardGet(name)) return json(403, { error: "A board that isn't stored yet is the owner's to make." });
-  const max = MAX_IMAGE;
-  const tooBig = { error: `A picture is at most ${max / 1048576} MB.` };
-  if (+(req.headers['content-length'] || 0) > max) return res.writeHead(413, { connection: 'close', 'content-type': 'application/json' }).end(JSON.stringify(tooBig));
-  const bytes = await sentWithin(req, max);
+  if (name !== null && (!B.NAME.test(name) || (page && !B.labPath(page)) || (at.some((v) => v !== null) && at.some((v) => v === null || !Number.isFinite(+v))))) return json(400, { error: 'name a board (?board=), a page like /x and a point (?x=&y=)' });
+  const tooBig = { error: `A picture is at most ${MAX_IMAGE / 1048576} MB.` };
+  if (+req.headers['content-length'] > MAX_IMAGE) return res.writeHead(413, { connection: 'close', 'content-type': 'application/json' }).end(JSON.stringify(tooBig));
+  const bytes = await sentWithin(req, MAX_IMAGE);
   if (bytes === null) return json(413, tooBig);
   const info = imageInfo(bytes);
-  if (!info || info.type !== type) return json(415, { error: "That isn't a png, jpeg, webp or gif picture." });
+  if (!info || info.type !== req.headers['content-type']) return json(415, { error: "That isn't a png, jpeg, webp or gif picture." });
+  if (name === null) {
+    const token = randomBytes(12).toString('hex');
+    fs.mkdirSync(STAGED, { recursive: true, mode: 0o700 });
+    fs.writeFileSync(path.join(STAGED, `${token}.${info.ext}`), bytes, { mode: 0o600 });
+    return json(201, { token, w: info.w, h: info.h, type: info.ext, size: bytes.length });
+  }
   let b = boardGet(name);
   if (!b) {
     if (!page) return json(404, { error: `no board ${name}` });
-    b = { v: 1, name, rev: 0, of: page, frames: [{ id: 'a', src: page, w: 1440, h: 900, state: 'live' }] };
+    b = boardFor(name, page);
   }
   const board = { ...b, frames: b.frames.map((f) => ({ ...f })) };
   const out = B.addImage(ROOT, board, bytes, info, at[0] === null ? undefined : { x: +at[0], y: +at[1] }, { label: url.searchParams.get('label') || '', guest });
@@ -2358,6 +2490,13 @@ const pickedPin = async (board, frame) => {
 };
 // The browser's key on this computer (data-admin), sent back as x-lab-admin.
 const keyOk = (req) => sameKey(String(req.headers['x-lab-admin'] || ''), TOKEN);
+// Who is the owner. A device that holds a pass (a one-time link opened there: its cookie) is the owner's own, as this
+// computer's browser is: it may do what that may, except what changes this machine or its settings (stopping or archiving a
+// lab, updating labit, keeping a rule, renaming, the agent's key and the admin key), which stay with this computer (isMac:
+// loopback with the key). Comments, their authors and pictures still say where they came from ("wifi guest").
+const isMac = (req) => isLoopback(req) && keyOk(req);
+const isDevice = (req) => WIFI && !isLoopback(req) && Boolean(guestOk(req));
+const isOwner = (req) => isMac(req) || isDevice(req);
 // Archiving a lab from the switcher (and the API's "stop"): every open wait ends with 423, which tells the agent the person stopped it (it
 // shouldn't wait again until asked). Pins stay where they are.
 const stopListening = () => {
@@ -2382,7 +2521,7 @@ const handler = async (req, res) => {
     const own = !PROXY || url.pathname.startsWith('/_lab/');
     // The one write that isn't JSON is a picture put on a board: its type (not a form's, so another site can't send it
     // without a preflight, which the lab never answers) and the same Origin rule.
-    const picture = url.pathname === '/_lab/api/image' && /^image\/(png|jpeg|webp|gif)$/.test(req.headers['content-type'] || '');
+    const picture = url.pathname === '/_lab/api/image' && /^image\/(png|jpeg|webp|gif)$/.test(req.headers['content-type']);
     if (req.method !== 'GET' && req.method !== 'HEAD' && (!sameOrigin(req) || (own && !picture && !(req.headers['content-type'] || '').startsWith('application/json'))))
       return plain(res, 403, 'forbidden');
     // A path that can't be decoded (/%, /%zz) is the sender's mistake, not a 500 with the error's text. Behind --proxy
@@ -2767,21 +2906,17 @@ const handler = async (req, res) => {
     // /_lab/board/<name> is the board page, /_lab/board/<name>/<frame> a variant's own page.
     if (pathname.startsWith('/_lab/board/') || pathname === '/_lab/api/board' || pathname === '/_lab/api/image') {
       const m = /^\/_lab\/board\/([a-z0-9][a-z0-9_-]{0,79})\/([a-z][a-z0-9]*)$/.exec(pathname);
-      const pic = m && boardGet(m[1])?.frames.find((f) => f.id === m[2] && f.kind === 'image');
-      if (pic && (req.method === 'GET' || req.method === 'HEAD')) {
-        const file = B.imageFile(ROOT, m[1], pic.file);
-        if (!fs.existsSync(file)) return notFound(req, res, pathname);
-        return sendFile(req, res, file, { 'x-content-type-options': 'nosniff', 'content-security-policy': "default-src 'none'; sandbox", 'content-disposition': 'inline' });
-      }
       if (m && (req.method === 'GET' || req.method === 'HEAD')) {
-        const file = B.frameFile(ROOT, m[1], m[2]);
+        const pic = boardGet(m[1])?.frames.find((f) => f.id === m[2] && f.kind === 'image');
+        const file = pic ? B.imageFile(ROOT, m[1], pic.file) : B.frameFile(ROOT, m[1], m[2]);
         if (!fs.existsSync(file)) return notFound(req, res, pathname);
+        if (pic) return sendFile(req, res, file, { 'x-content-type-options': 'nosniff', 'content-security-policy': "default-src 'none'; sandbox", 'content-disposition': 'inline' });
         return sendBody(req, res, 200, { 'content-type': 'text/html; charset=utf-8', 'cache-control': 'no-store' },
           inject(withIcon(fs.readFileSync(file, 'utf8')), widget(`/_board/${m[1]}/${m[2]}`, isLoopback(req), nameFor(req), inFrame(req), req)));
       }
       // Awaited: what it throws (a body that is not JSON, or too long) is answered below. Not awaited, it ended the lab.
       if (pathname === '/_lab/api/board') return await boardApi(req, res, url);
-      if (pathname === '/_lab/api/image') return await boardImage(req, res, url);
+      if (pathname === '/_lab/api/image') return await imageApi(req, res, url);
       // The board page itself: an empty page with the board's view over all of it, the same one a page that links a board
       // shows (public/_lab/boardview.js, own() in src/board/overlay.ts), filled from /_lab/api/board. The widget rides on it
       // under the board's key, like any page; it is a page of its own, never one of the lab's pages.
@@ -2799,6 +2934,12 @@ const handler = async (req, res) => {
         const html = `<!doctype html><html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no, viewport-fit=cover"><title>board ${bp[1]}</title><style>html,body{margin:0;height:100%;overflow:hidden;overscroll-behavior:none;background:#f7f7f7}@media (prefers-color-scheme:dark){html,body{background:#1b1b1a}}</style></head><body><script type="module">import{own}from"/_lab/boardview.js";own("${bp[1]}")</script></body></html>`;
         return sendBody(req, res, 200, { 'content-type': 'text/html; charset=utf-8', 'cache-control': 'no-store' }, inject(withIcon(html), widget(`/_board/${bp[1]}`, isLoopback(req), nameFor(req), true, req)));
       }
+    }
+    // A comment's pictures: only the names the lab gives (<comment id>-<n>.<type>), only to whoever may read the comments.
+    if (pathname.startsWith('/_lab/attachments/') && (req.method === 'GET' || req.method === 'HEAD')) {
+      const file = /^\/_lab\/attachments\/([a-f0-9]{12}-[1-4]\.(png|jpg|webp|gif))$/.exec(pathname)?.[1];
+      if (!file || !fs.existsSync(path.join(ATTACH, file))) return notFound(req, res, pathname);
+      return sendFile(req, res, path.join(ATTACH, file), { 'x-content-type-options': 'nosniff', 'content-security-policy': "default-src 'none'; sandbox", 'cross-origin-resource-policy': 'same-origin', 'cache-control': 'private, max-age=31536000, immutable' });
     }
     if (pathname.startsWith('/_lab/agent/')) {
       res.writeHead(200, { 'content-type': 'text/plain; charset=utf-8', 'cache-control': 'no-store' });
@@ -2885,7 +3026,7 @@ const handler = async (req, res) => {
       const listPage = req.method === 'GET' && [...url.searchParams.keys()].join() === 'page' ? url.searchParams.get('page') : '';
       const listing = listPage.length > 1 && !listPage.endsWith('/'); // as the store spells the page (/a, not /a/)
       const listRev = pageRev.get(listPage) || 0;
-      const kind = `${isLoopback(req) ? 'here' : 'guest'} ${encodingFor(req)} ${req.headers['x-lab-admin'] || ''}`;
+      const kind = `${isLoopback(req) ? 'here' : 'device'} ${encodingFor(req)} ${req.headers['x-lab-admin'] || ''}`;
       const kept = listing && cachedList(listPage, kind);
       // The list says which comments version it is as of (x-lab-rev), so a page that opened it can ask what came after
       // (/changes) when the live stream's first message says the lab is further on. A kept list is as of now: its page hasn't changed.
@@ -2896,16 +3037,52 @@ const handler = async (req, res) => {
       // API hears from the lab alone who speaks, the agent or a person: a page can't say it is the agent.
       // Who wrote it (the agent's session, or this computer / a wifi guest) goes in with it, under the lab's own key.
       const stamp = agent ? { session: slim(sessionFrom(req)) } : { from: isLoopback(req) ? 'this computer' : 'wifi guest' };
+      // A comment may carry pictures (attachments: tokens from POST /_lab/api/image); a delete takes its pictures with it.
+      // The body is read here once, then handed on.
+      let raw;
+      let staged = [];
+      let doomed = [];
+      let dropped = null; // a deleted pin: [its page, its id]
+      if (req.method === 'POST') {
+        raw = await sentWithin(req, BODY_MAX);
+        if (raw === null) return plain(res, 413, 'too big');
+        if (raw.includes('"attachments"') || raw.includes('"delete"')) {
+          let b = null;
+          try {
+            b = JSON.parse(raw.toString());
+          } catch {}
+          if (b?.attachments !== undefined) {
+            const tokens = b.attachments;
+            if (agent || !Array.isArray(tokens) || tokens.length > MAX_IMAGES || tokens.some((t) => !/^[a-f0-9]{24}$/.test(t))) return answer(res, { error: 'bad attachments' }, 400);
+            const replay = typeof b.nonce === 'string' && db.has(`lab:nonce:${b.page}:${b.nonce}`); // a retry of a comment already saved: its pictures are in place
+            if (!replay) {
+              staged = tokens.map(stagedFile);
+              const lost = tokens.filter((t, i) => !staged[i]);
+              if (lost.length) return answer(res, { error: 'pictures expired', tokens: lost }, 409);
+              stamp.images = staged.map((f) => ({ ...f, file: undefined }));
+            }
+          }
+          if (b?.action === 'delete' && typeof b.id === 'string') {
+            dropped = [b.page, b.id];
+            doomed = commentsOf(b.page).filter((c) => c.id === b.id || c.parent === b.id).flatMap((c) => imagesOf(c).map((i) => imageName(c, i)));
+          }
+        }
+      }
       const out = await callApi(fn, req, `http://localhost/api${url.search}`, {
-        host: 'localhost', 'x-lab-agent': agent ? '1' : '0', ...(agent ? { 'x-lab-admin': TOKEN } : {}),
+        host: 'localhost', 'x-lab-agent': agent ? '1' : '0', ...(agent || isDevice(req) ? { 'x-lab-admin': TOKEN } : {}), // an owner's device resolves, reopens, moves and deletes as this computer does (the key itself never reaches its page)
         'x-lab-stamp-key': process.env.LAB_STAMP_KEY, 'x-lab-stamp': encodeURIComponent(JSON.stringify(stamp)),
-      });
+      }, raw);
       const text = await out.text();
       if (req.method === 'POST' && out.ok) {
         // An answer or a resolve from a session is proof it has what it was handed.
         if (agent) for (const [id, d] of unacked) if (d.who === whoOf(sessionFrom(req))) confirmed(id);
         if (agent) silent.delete(whoOf(sessionFrom(req))); // any word from it: it is answering again
         const { comment } = JSON.parse(text);
+        // The pictures of the comment just made move to their names before anyone is told of it, so no device asks for one
+        // that is not there yet; a delete takes its pictures away (an archived comment's stay where they are).
+        if (out.status === 201 && staged.length) staged.forEach((f, i) => { try { fs.renameSync(f.file, path.join(ATTACH, `${comment.id}-${i + 1}.${f.type}`)); } catch (e) { console.error('[lab] could not keep a picture:', e.message); } });
+        for (const name of doomed) fs.rmSync(path.join(ATTACH, name), { force: true });
+        if (dropped) dropBoard(...dropped);
         // Who wrote it, its intent and an agent's done closing the thread are saved by the API, in its own write.
         if (out.status === 201 && !agent) {
           const [key] = [...db].find(([k, m]) => k.startsWith('lab:comments:') && m.has(comment.id));

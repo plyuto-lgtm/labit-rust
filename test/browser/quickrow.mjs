@@ -37,7 +37,9 @@ try {
         return { names: kids.map((b) => b.textContent), ns: kids.map((b) => b.getAttribute('data-n')), dots: kids.some((b) => b.getAttribute('data-k') === '…'), menu: Boolean(q.parentElement.querySelector('.acts')), over: q.scrollWidth > q.clientWidth + 1 };
       });
       const want = ACTIONS.map((a) => a.name);
-      check(eng, 'some of the 12 fit, in order, the rest are left out', row.names.length > 0 && row.names.length < 12 && row.names.every((n, i) => n === want[i]), JSON.stringify(row.names));
+      // +board is labit's own, never left out for room: last on the line, after the actions that fit.
+      const acts = row.names.slice(0, -1);
+      check(eng, 'some of the 12 fit, in order, the rest are left out', acts.length > 0 && acts.length < 12 && acts.every((n, i) => n === want[i]) && row.names.at(-1) === '+board', JSON.stringify(row.names));
       check(eng, 'no "…" button and no list', !row.dots && !row.menu, JSON.stringify(row));
       check(eng, 'the line does not overflow', !row.over);
       check(eng, 'the chips are numbered for ⌥ + 1…4', row.ns.every((n, i) => n === String(i + 1)), JSON.stringify(row.ns));

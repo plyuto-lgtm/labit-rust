@@ -476,7 +476,8 @@ export function startLive() {
     // What the morph touched, to be outlined for a moment: the person sees what the agent's save changed.
     const touched = new Set<Element>();
     const hit = (n) => (n?.nodeType === 1 ? touched.add(n) : touched.add(n?.parentNode));
-    const keepOut = (n) => n === W.host || (n.nodeType === 1 && n.localName === 'script');
+    // Labit's own (the widget, an open board's view: +board writes the page's file while its board is open) and scripts.
+    const keepOut = (n) => n === W.host || (n.nodeType === 1 && (n.localName === 'script' || n.hasAttribute('data-lab-board-view')));
     // Old and new children are paired in order, looking a few ahead, so an added or removed element doesn't shift
     // everything after it (an open <details> further down stays the same element, and stays open).
     const same = (o, n) => o.nodeType === n.nodeType && o.nodeName === n.nodeName && idOf(o) === idOf(n);

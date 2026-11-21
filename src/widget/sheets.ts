@@ -1,4 +1,5 @@
 // Part of the comment widget (src/comments.js bundles it). Uses the widget's own parts through W, set once at startup.
+import * as move from './sheetmove.ts';
 
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
 let W: any;
@@ -19,31 +20,16 @@ const scrollerIn = (e, node) =>
 // How long a sheet's transition takes to be over, with a frame or two of slack, before its inline style is cleared.
 const settled = () => W.ms('slow') + W.ms('quick') / 3;
 
-// A sheet let go carries on at the speed it had (Apple's "Designing Fluid Interfaces": a thing you drag and let go
-// continues at the finger's velocity, and nothing starts steeply for no reason). A cubic-bezier's first slope is its
-// starting speed in whole distances per duration, so each curve below is built from the release speed and the way left.
-const bez = (...n: number[]) => `cubic-bezier(${n.map((x) => +x.toFixed(3))})`;
-// To a stop `dist` px away, going `speed` px/ms toward it now (0 when it is going away, or still): [ms, curve]. Ends like
-// iOS's settle (.32, .72, 0, 1), starts at the speed; a quick throw shortens it (never past slow). At rest it starts softly.
-// The curve speeds up a little in its first frame (its start is convex), so it starts 1.2 times slower than asked for.
-function glide(dist: number, speed: number, cap = 1e9): [number, string] {
-  let ms = Math.min(cap, W.ms('slow'));
-  if (!ms || dist < 1) return [ms, 'var(--_ease-settle)'];
-  if ((speed * ms) / dist > 2.7) ms = Math.max(W.ms('quick'), (2.7 * dist) / speed); // settle's own first slope is 2.25 (2.7 / 1.2)
-  const m = (speed * ms) / dist / 1.2; // the first slope, in whole distances per duration
-  const y = Math.min(1, 0.32 * m);
-  return [ms, bez(m ? y / m : 0.32, y, 0, 1)];
-}
-// Off the screen `dist` px away, going `speed` px/ms toward it now: [ms, curve]. Keeps that speed (a steady pace, or
-// speeding up from it, as a sheet falls) and does not stop at the end; at most `cap` ms.
-function carry(dist: number, speed: number, cap: number): [number, string] {
-  const ms = Math.min(cap, Math.max(W.ms('quick'), speed > 0 ? dist / speed : cap));
-  const m = Math.min(2, (speed * ms) / dist);
-  return [ms, bez(1 / 3, m / 3, 2 / 3, (m + 1) / 3)];
-}
+// The motion's rules (sheetmove.ts, the board drawer's too), with this widget's token lengths.
+const glide = (dist: number, speed: number, cap = 1e9): [number, string] => move.glide(dist, speed, W.ms('slow'), W.ms('quick'), cap, 'var(--_ease-settle)');
+const carry = (dist: number, speed: number, cap: number) => move.carry(dist, speed, cap, W.ms('quick'));
 let leaveBar = ''; // how the bar rises as the last leave() goes (slideAway)
 
-const HELD = ['top', 'bottom', 'height', 'max-height', 'transform', 'transition', 'animation', 'pointer-events', 'opacity', 'transform-origin'];
+const OFF = 96; // how far past the screen's bottom a leaving sheet's top edge goes: the shadow above that edge (28 px) and Safari's see-through bar can't show it
+// The screen's bottom for a leaving sheet: Safari paints the page under its see-through bar below innerHeight (a sheet cut off
+// there, 21 Nov simulator), so it goes to the whole screen's.
+const floor = () => Math.max(innerHeight, screen.height || 0);
+const HELD = ['top', 'bottom', 'height', 'max-height', 'transform', 'transition', 'animation', 'pointer-events', 'opacity', 'transform-origin', 'box-shadow'];
 
 // Where the last touch went down: the sheet it opens grows out of there, as iOS 27's do from the button you tapped.
 let tap = { x: 0, y: 0, at: -1e9 };
@@ -70,12 +56,11 @@ export function holdKeyboard() {
 // used to slide behind the keyboard and vanish there, and the keyboard stayed alone for 0.6 s; after sending, the sheet
 // rode the keyboard halfway down and vanished mid-screen (iOS 27 simulator, 16 Nov). Its box is held where it is (the
 // keyboard going would otherwise resize and move it on the way).
-// Closed by a tap (or a send) it shrinks back into where it came from and fades, as iOS 27's share sheet does into its
-// button (measured: ~0.1 s); to: the new pin, after a send. After a swipe (ms) it slides down at the finger's speed,
-// steady, never fading (easing out, its last part crept under Safari's see-through bottom bar, Leo 16 Nov).
-// After a send it slides down whole, like any sheet: it never shrinks or fades, and the new pin pops in with one green
-// ring as it goes (.pin.arrive). Lab option 5, Leo 17 Nov; before that it flew into the pin, shrinking to its size, and
-// the squeezed card read badly.
+// Closed by a tap, a swipe or a send it slides down and away and never shrinks (a tap used to shrink it to 30 % over its
+// pill and fade, like iOS 27's share sheet; its shadow smeared there and the pill came up under it, Leo 21 Nov). After a
+// swipe (ms: the longest it may take) it goes at the finger's speed, steady, never fading (easing out, its last part crept
+// under Safari's see-through bottom bar, Leo 16 Nov); a tap takes the base duration. After a send the new pin pops in with
+// one green ring as it goes (.pin.arrive). Lab option 5, Leo 17 Nov.
 // Returns how long it takes; let go of it with letGo().
 // After a swipe (ms: the longest it may take) it goes on at `speed` px/ms, the finger's (see carry).
 export function leave(node: HTMLElement, ms = 0, sent = false, speed = 0) {
@@ -85,7 +70,7 @@ export function leave(node: HTMLElement, ms = 0, sent = false, speed = 0) {
   try { moved = new DOMMatrixReadOnly(getComputedStyle(node).transform).m42 || 0; } catch {}
   const r = node.getBoundingClientRect();
   const top = r.top - moved;
-  const way = Math.max(r.height, innerHeight - top) + 8 - moved; // to under the screen's bottom
+  const way = Math.max(r.height, floor() - top) + OFF - moved; // to under the screen's bottom, and past its shadow and Safari's see-through bar
   if (ms) [dur, ease] = carry(way, speed, ms);
   // The bar comes up with the sheet: after a swipe at the same pace (the sheet's way left and its speed, in whole ways
   // and ways per ms, are the bar's too), settling where the sheet is gone; after a tap softly, from rest. The standard
@@ -99,9 +84,13 @@ export function leave(node: HTMLElement, ms = 0, sent = false, speed = 0) {
   W.scrim.style.transition = 'none';
   W.scrim.style.opacity = fade;
   // The keyboard goes now, with the sheet; after a send, once the card has gone (see holdKeyboard).
-  const letKeysGo = () => (W.root.activeElement as HTMLElement | null)?.blur();
+  // …and the page starts back to where it was with it (backFromReveal).
+  const letKeysGo = () => ((W.root.activeElement as HTMLElement | null)?.blur(), node.classList.contains('float') && backFromReveal());
   if (sent) setTimeout(letKeysGo, dur);
   else letKeysGo();
+  // A comment dropped unsent: its pin goes now, not when the sheet has finished sliding away (it stood there alone for
+  // 0.3 s; Leo, 21 Nov: "if not placed comment it dissappears with delay").
+  if (!sent && node.classList.contains('float')) (W.root.querySelector('.pin.draft') as HTMLElement | null)?.style.setProperty('opacity', '0');
   // Back into its pin where the pin is now (the page scrolled it into view after the tap); the list and the chat back
   // to where they were tapped open.
   const pin = sent ? null : W.root.querySelector(node.classList.contains('card') ? '.pin.open' : node.classList.contains('float') ? '.pin.draft' : 'none');
@@ -109,20 +98,34 @@ export function leave(node: HTMLElement, ms = 0, sent = false, speed = 0) {
   if (p) fromTap(node, { x: p.left + p.width / 2, y: p.top + p.height / 2 });
   void node.offsetHeight;
   const down = () => {
-    node.style.setProperty('transition', `transform ${dur}ms ${ease}`, 'important');
-    node.style.setProperty('transform', `translateY(${Math.max(r.height, innerHeight - top) + 8}px)`, 'important');
+    node.style.setProperty('transition', `transform ${dur}ms ${ease}, box-shadow ${ms ? 0 : W.ms('quick')}ms var(--_ease-out)`, 'important');
+    node.style.setProperty('transform', `translateY(${Math.max(r.height, floor() - top) + OFF}px)`, 'important');
+    // The soft shadow fades off on the way, instead of lingering above the top edge and popping off with the sheet (Leo, 21 Nov:
+    // "chat top shadow i dont like when disappearing"); the hairline stays.
+    node.style.setProperty('box-shadow', '0 0 0 .5px color-mix(in srgb, var(--_fg) 10%, transparent), 0 0 8px transparent', 'important');
   };
   // After a send, from the next frame: drawing the sent pin took ~100 ms, which ate the start of the move (iOS 27 simulator).
   if (sent) requestAnimationFrame(() => requestAnimationFrame(down));
-  else if (ms) down();
-  else {
-    node.style.setProperty('transition', `transform ${dur}ms ${ease}, opacity ${dur}ms var(--_ease-in)`, 'important');
-    node.style.setProperty('transform', `translateY(${moved}px) scale(.3)`, 'important');
-    node.style.setProperty('opacity', '0', 'important');
-  }
+  else down(); // a tap too goes down and away, as a swipe does: it used to shrink to 30 % over the pill, its shadow smeared there (Leo, 21 Nov: "still some shadow when drawer hiding")
   W.scrim.style.transition = `opacity ${dur}ms ${ease}`;
   W.scrim.style.opacity = '0';
   return sent ? dur + W.ms('quick') / 3 : dur; // after a send it starts a frame or two late (see down)
+}
+// Runs `fn` once the sheet's slide has ended, not when its time is up: a render in the same moment can start the slide
+// late, and a sheet taken away on a timer popped off half way down (iOS 27 simulator, 21 Nov: tap-close at 565 px).
+// The timer stays as the fallback (nothing slid, or the event never came).
+export function afterLeave(node: HTMLElement, dur: number, fn: () => void) {
+  let done = false;
+  const go = () => {
+    if (done) return;
+    done = true;
+    clearTimeout(t);
+    node.removeEventListener('transitionend', on);
+    fn();
+  };
+  const on = (e: TransitionEvent) => e.target === node && e.propertyName === 'transform' && go();
+  const t = setTimeout(go, dur + 400);
+  node.addEventListener('transitionend', on);
 }
 export function letGo(node: HTMLElement) {
   for (const k of HELD) node.style.removeProperty(k);
@@ -143,52 +146,158 @@ export function slideAway(node, close, ms = 0, speed = 0) {
   const dur = leave(node, ms, false, speed);
   W.bar.style.transition = `transform ${leaveBar}, opacity ${dur}ms var(--_ease-out)`;
   W.host.style.setProperty('--lab-p', '1'); // the bar comes up as the sheet goes down
-  setTimeout(() => {
+  afterLeave(node, dur, () => {
     close();
     letGo(node);
     W.bar.style.transition = '';
     W.host.style.removeProperty('--lab-p');
-  }, dur);
+  });
 }
 
-// A new comment's pin stays in sight: as its sheet opens, a pin the sheet would cover once the keyboard is up scrolls up
-// into the middle of what's free above it, as goTo does for a thread (a pin low on the page went under the sheet: you
-// couldn't see what you were commenting on, 16 Nov). Now, before the keyboard: scrolled with the keyboard up, Safari pans
-// its view instead and the sheet landed 126 px low, behind the keyboard's bar.
-export function revealDraft() {
+// A new comment's pin stays in sight: a pin the sheet would cover once the keyboard is up comes up into the middle of
+// what's free above it (a pin low on the page went under the sheet: you couldn't see what you were commenting on, 16 Nov).
+// One move, in the frames the keyboard and the sheet rise in (Leo, 21 Nov, on his phone: "pin placement opening keyboard
+// and shifting everything not very smooth": the page glided first, under the finger, and the keyboard came after or in
+// the middle of it). The page has to be scrolled before the cursor goes in: scrolled after, iOS pans the screen instead of
+// the page and the sheet is thrown about (its top went 331, 182, 234, 197, 267: iOS 27 simulator); scrolled in the lift
+// itself, just before the focus, iOS never took the scroll and the keyboard came up over the sheet. So, as the pin appears
+// under the finger (the hold): the page is put at its new place in one step and drawn where it was (shifted back by as
+// much, --lab-shift on the page's own blocks and on the pins), and when the keyboard starts up that shift runs out, as
+// the sheet's own rise does. Nothing is scrolled while the keyboard is there, and nothing is seen to move before it.
+let gen = 0; // each shift is the last one's end
+const shifted = (px: number, ms: number) => {
+  const de = document.documentElement;
+  gen++;
+  de.style.setProperty('--lab-shift-t', `${ms}ms`);
+  de.style.setProperty('--lab-shift-e', getComputedStyle(W.host).getPropertyValue('--_ease-settle').trim() || 'ease');
+  de.style.setProperty('--lab-shift', `${px}px`);
+  de.classList.add('lab-moved'); // (not lab-shift: that is the Shift key's)
+  W.host.setAttribute('data-shift', '');
+};
+const unshifted = () => {
+  const de = document.documentElement;
+  gen++;
+  de.classList.remove('lab-moved');
+  for (const k of ['--lab-shift', '--lab-shift-t', '--lab-shift-e']) de.style.removeProperty(k);
+  W.host.removeAttribute('data-shift');
+  for (const n of document.querySelectorAll('[data-lab-still]')) n.removeAttribute('data-lab-still');
+};
+const keysUp = () => Boolean(W.vv && innerHeight - W.vv.height > 60);
+let landing: (() => void) | null = null; // the page's way back, still to be finished (backFromReveal)
+let letGoShift: (() => void) | null = null; // lets the shift run out (the keyboard is coming, or did not come)
+/** The finger has lifted and the cursor is in the box: should no keyboard come, the page takes its new place anyway. */
+export const liftedDraft = () => letGoShift && setTimeout(letGoShift, 450);
+/** glide: the box takes the cursor by itself (no hold, no lift to wait for): the page glides there, as it always did. */
+export function revealDraft(glide = false) {
   const float: HTMLElement | null = W.root.querySelector('.float:not(.out)');
   const pin: HTMLElement | null = W.root.querySelector('.pin.draft');
-  if (!W.coarse || !float || !pin || !W.vv) return;
+  if (!W.coarse || !float || !pin || !W.vv || W.S.revealed) return;
+  if (pin.style.position === 'fixed') return; // a board's pin is held to the screen: scrolling the page under the board moves nothing but the page (the board's camera brings the pin up, overlay.ts)
+  landing?.();
   const up = innerHeight - W.vv.height;
   const keys = up > 60 ? up : W.S.kbSeen || Math.round(innerHeight * 0.42); // the keyboard it will have
   const sheetTop = innerHeight - keys - float.offsetHeight - 8; // where it comes to rest, not where it is growing now
   const p = pin.getBoundingClientRect();
   const free = 56; // below the status bar
   if (!(p.top < free || p.bottom > sheetTop - 16)) return;
-  const to = Math.max(0, scrollY + (p.top + p.bottom) / 2 - (free + sheetTop) / 2);
-  W.S.revealed = { from: scrollY, to }; // where you were: the page goes back there once the comment is sent or dropped (backFromReveal)
-  scrollPageTo(to);
+  const from = scrollY;
+  const to = Math.max(0, from + (p.top + p.bottom) / 2 - (free + sheetTop) / 2);
+  W.S.revealed = { from, to }; // where you were: the page goes back there once the comment is sent or dropped (backFromReveal)
+  if (glide) return scrollPageTo(to);
+  roomFor(to);
+  scrollTo({ top: to, behavior: 'instant' });
+  const by = scrollY - from;
+  if (W.still.matches || Math.abs(by) < 2) return;
+  // What the page itself holds to the screen (a bar of its own, at the top of body) is not shifted: it did not scroll.
+  for (const n of Array.from(document.body.children)) if (n !== W.host && /fixed|sticky/.test(getComputedStyle(n).position)) n.setAttribute('data-lab-still', '');
+  shifted(by, 0);
+  void document.body.offsetHeight; // drawn where it was, before anything is let go
+  const mine = gen;
+  const go = () => {
+    if (letGoShift !== go) return;
+    letGoShift = null;
+    W.vv.removeEventListener('resize', keys2);
+    if (gen !== mine) return; // sent or dropped already
+    shifted(0, W.ms('slow'));
+    const end = gen;
+    setTimeout(() => gen === end && unshifted(), W.ms('slow') + 60);
+  };
+  const keys2 = () => keysUp() && go();
+  letGoShift = go;
+  W.vv.addEventListener('resize', keys2);
+  if (keysUp()) go(); // it is up already (a new comment while another field had it)
 }
 
-// After a new comment's sheet has gone, the page scrolls back to where it was before revealDraft moved it, unless you
-// scrolled it yourself since (you went somewhere: stay there).
+// A new comment's sheet is going (sent, dropped, swiped away): the page goes back to where it was before revealDraft moved
+// it, as the keyboard goes down, the same way round: its blocks slide back first (the scroll stays, nothing is scrolled
+// while a keyboard is there), and once the keyboard has gone the page is put there in one step, drawn as it already is.
 export function backFromReveal() {
   const r = W.S.revealed;
   W.S.revealed = null;
-  if (r && W.coarse && Math.abs(scrollY - r.to) < 40) scrollPageTo(r.from);
+  // 320: the keyboard's pan moves the page too (about 300 px, 21 Nov simulator: it was left 382 down from 425); a sheet holds the page still
+  // otherwise, so what moved it is that pan, not a hand.
+  if (!(r && W.coarse && Math.abs(scrollY - r.to) < 320)) return;
+  const by = scrollY - r.from;
+  if (W.still.matches || Math.abs(by) < 2) return scrollPageTo(r.from);
+  shifted(by, W.ms('slow'));
+  const mine = gen;
+  const at = performance.now() + W.ms('slow') + 30;
+  let landed = false;
+  const land = (now = false) => {
+    if (landed || (!now && (keysUp() || performance.now() < at))) return;
+    landed = true;
+    landing = null;
+    clearTimeout(t1);
+    clearTimeout(t2);
+    W.vv?.removeEventListener('resize', check);
+    scrollTo({ top: r.from, behavior: 'instant' });
+    if (gen === mine) unshifted();
+  };
+  const check = () => land();
+  landing = () => land(true);
+  const t1 = setTimeout(check, W.ms('slow') + 40);
+  const t2 = setTimeout(() => land(true), 1500);
+  W.vv?.addEventListener('resize', check);
 }
 
 // Scrolls the page to top (smoothly, unless motion is reduced). A spot near the page's end can't scroll up into the
 // part a phone's sheet leaves free above it: the page gets room below its end while the sheet is open (--lab-room).
 export function scrollPageTo(top: number) {
-  if (W.coarse) {
-    const de = document.documentElement;
-    const had = parseFloat(de.style.getPropertyValue('--lab-room')) || 0;
-    const room = Math.max(0, Math.ceil(top + innerHeight - (de.scrollHeight - had)));
-    de.style.setProperty('--lab-room', `${room}px`);
-    de.classList.toggle('lab-room', room > 0);
-  }
-  scrollTo({ top: Math.max(0, top), behavior: W.still.matches ? 'auto' : 'smooth' });
+  if (W.coarse) roomFor(top);
+  const to = Math.max(0, top);
+  cancelAnimationFrame(glideId);
+  if (W.still.matches || Math.abs(to - scrollY) < 2) return scrollTo({ top: to, behavior: 'auto' });
+  // Its own glide, ease in and out and longer for a longer way: the browser's smooth scroll took 0.28 s for 500 px, which
+  // reads as a jump (Leo, 21 Nov: "scrolling position to pin can be smoother"). A touch or a wheel hands the page back.
+  const from = scrollY;
+  // Up to 0.9 s: at 0.56 s a pin 2700 px away went by at 237 px a frame, which is a jump too (iOS 27 simulator, 21 Nov).
+  const ms = Math.min(900, 260 + Math.abs(to - from) * 0.4);
+  const t0 = performance.now();
+  const stop = () => (cancelAnimationFrame(glideId), removeEventListener('touchstart', stop), removeEventListener('wheel', stop));
+  addEventListener('touchstart', stop, { passive: true });
+  addEventListener('wheel', stop, { passive: true });
+  const step = (now: number) => {
+    const k = Math.min(1, Math.max(0, (now - t0) / ms));
+    scrollTo({ top: from + (to - from) * (k < 0.5 ? 4 * k ** 3 : 1 - (-2 * k + 2) ** 3 / 2), behavior: 'instant' });
+    if (k < 1) glideId = requestAnimationFrame(step);
+    else stop();
+  };
+  glideId = requestAnimationFrame(step);
+}
+let glideId = 0;
+// Room below the page's end, so that it can scroll to `top` on a phone. The page's own height is html's box when the page is
+// shorter than the screen: scrollHeight is never less than the screen's height, so a short page read as tall as the screen,
+// got 283 px of room where it needed 817, and could not scroll at all: the pin stayed under the sheet until the keyboard
+// came, and then the screen jumped 283 px in one frame and the sheet went off the top and came back (iOS 27 simulator,
+// 21 Nov; Leo: "pin placement opening keyboard and shifting everything not very smooth").
+export function roomFor(top: number, lessOnly = false) {
+  const de = document.documentElement;
+  const had = parseFloat(de.style.getPropertyValue('--lab-room')) || 0;
+  const own = (de.scrollHeight > innerHeight + 1 ? de.scrollHeight : de.offsetHeight) - had;
+  const room = top <= 0 ? 0 : Math.max(0, Math.ceil(top + innerHeight - own));
+  if (lessOnly && room >= had) return;
+  de.style.setProperty('--lab-room', `${room}px`);
+  de.classList.toggle('lab-room', room > 0);
 }
 
  // CloseWatcher (not in TypeScript's DOM types yet)
@@ -366,13 +475,10 @@ export function swipeDown(node, close, grows = false) {
     };
     if (grows && !node.classList.contains('full') && (raw < -40 || v < -0.4)) return node.classList.contains('card') && (W.S.cardFull = true), settle(true, -vs);
     if (grows && node.classList.contains('full') && v < 1.2 && (raw > 60 || v > 0.4)) return node.classList.contains('card') && (W.S.cardFull = false), settle(false, vs);
-    // Where the sheet would come to rest if let go now, as iOS judges a throw (Apple's "Designing Fluid Interfaces":
-    // the distance plus the speed carried on at the normal deceleration, 0.998 a millisecond, so v × 499): past half
-    // its height it goes. A short quick flick closes; a slow long drag closes past halfway; a move back up never does.
-    const rest = dy + Math.max(0, v) * 499;
+    // Where it would come to rest if let go now, past half its height: it goes (move.goes, sheetmove.ts).
     // Off the screen's bottom at the sheet's own speed, in 300 ms at most (see leave); else back to where it sits (a
     // rubber band's stretch goes back the other way).
-    if (v > -0.1 && rest > h / 2) return slideAway(node, close, W.ms('slow'), Math.max(0, vs));
+    if (move.goes(dy, v, h)) return slideAway(node, close, W.ms('slow'), Math.max(0, vs));
     settle(undefined, dy > 0 ? -vs : vs);
   };
   node.addEventListener('touchend', end);

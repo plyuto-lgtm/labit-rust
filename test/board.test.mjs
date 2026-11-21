@@ -307,6 +307,13 @@ test('a board pin keeps signed numbers; the board text lists frames in order, th
   assert.match(t, new RegExp(`^on: the board ${name} over this page, not the page itself$`, 'm'));
   assert.match(t, /^near: frame b "Wide" \(\/pricing at 1280×800\), 120 px left of its left edge, 40 px below its top$/m);
   assert.doesNotMatch(t, /selector \(at comment time\)|where on element/);
+  // the frames of the board the pin names follow the page's own text, with the pins open on each
+  assert.match(t, new RegExp(`# The frames of board ${name}, which the pins above name\\n# Board ${name} · Set`));
+  assert.match(t, /\nb {2}\/pricing {2}1280×800 {2}"Wide" {2}1 open\n/);
+  // a pin made on a phone says so, and that its spot was scaled to the frame as stored
+  const onPhone = await pin('/pricing', { text: 'phone pin', anchor: { kind: 'board', frame: 'b', fx: 100, fy: 50, bx: 1, by: 1, board: name, lay: 390, selector: '', x: 0, y: 0, docX: 0, docY: 0, width: 390 } });
+  assert.ok(onPhone.comment);
+  assert.match(await text('/pricing'), /near: frame b "Wide" \(\/pricing at 1280×800\), 100 px right of its left edge, 50 px below its top \(made on a phone, the page laid out 390 px wide: the spot is scaled to the frame's size above\)/);
   // a pin on a page, made on a board
   const p = await pin('/cart', { text: 'x', anchor: { kind: 'element', selector: 'h1', x: 0.5, y: 0.5, board: name, frame: 'a' } });
   assert.match(await text('/cart'), new RegExp(`^seen on: board ${name}, frame a "?`, 'm'));

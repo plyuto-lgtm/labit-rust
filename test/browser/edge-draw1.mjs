@@ -65,7 +65,9 @@ try {
     const drift = await under('drift', (x, len) => (-12 * x) / len);
     check(eng, 'a flat line that drifts 12 px over 260 reads as underlined', /drawn: underlined/.test(drift.text) && /Plans/.test(drift.text), said(drift.text));
     const drift2 = await under('drift2', (x, len) => (-22 * x) / len, 500);
-    check(eng, 'a flat line that drifts 22 px over 500 (2.5°) still reads as underlined, not as an arrow', /drawn: underlined/.test(drift2.text), said(drift2.text));
+    // (Its middle is 5 px above the foot of the words, inside their row: it read as underlined only where the caret missed a
+    // letter, which draw.ts letterAt no longer does. Either reading is a flat line at the words, and neither an arrow.)
+    check(eng, 'a flat line that drifts 22 px over 500 (2.5°) still reads as underlined or crossed out, not as an arrow', /drawn: (underlined|crossed out)/.test(drift2.text), said(drift2.text));
 
     // 7. Arrows whose head is drawn after the line: as one V, and as two ticks.
     const shaft = async () => { const h = await box(p, 'h'); const b = await box(p, 'b'); return { from: [h.l + 20, h.cy], tip: [b.l + 80, b.cy + 4] }; };

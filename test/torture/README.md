@@ -329,7 +329,7 @@ anchor through the API.
 | `context-on-another-page`, `agent-text-wrong-page-line`, `file-line-names-another-file`, `file-line-missing` | silent | the pin is listed on another page than the address the device showed (`reached=client-side`: after the app went there itself); the page's `page:` or `file:` line is wrong |
 | `selector-names-another-element`, `selector-leads-nowhere` | silent (unclear inside a web component when it leads nowhere) | `selector (at comment time)` led to another element, or to none, the moment the pin was saved |
 | `line-hint-wrong` | silent | `in file: <file>:<line>` names another file, or a line the element is not written on |
-| `source-missing`, `source-names-another-file`, `source-line-missing`, `source-line-wrong`, `source-line-stale-after-edit`, `component-missing`, `component-wrong` | silent | behind a framework: no `written at`, another file (`names=a-built-file`: a compiled chunk), the line wrong when it was pinned (`made=after-the-edit`: pinned after a hot update), or right then and stale now with nothing saying so; the component missing or another |
+| `source-missing`, `source-names-another-file`, `source-line-missing`, `source-line-wrong`, `source-line-stale-after-edit`, `source-line-false-alarm`, `component-missing`, `component-wrong` | silent | behind a framework: no `written at`, another file (`names=a-built-file`: a compiled chunk), a line that is wrong now or as pinned (the text must say which: see "the `written at:` contract" below), a line right when pinned and stale now with nothing saying so, "not found again" said of an element that did not move; the component missing or another |
 | `context-holds-the-widgets-own-attribute` | silent | the `element:` line holds a `data-lab-…` attribute the widget itself put on the page's element |
 | `context-stale-after-change`, `context-on-another-element-after-change`, `removed-element-not-told` | silent | after an edit the text still gives the old words, heading or class (or another element) with no "spot changed" line; a removed element is not told |
 | `spot-changed-said-with-nothing-changed` | silent | the agent is told "your edit changed the spot" and nothing on the page changed (`spot-changed-said-of-an-untouched-element`, unclear: the page changed elsewhere) |
@@ -365,6 +365,10 @@ anchor through the API.
   or the step is skipped with a note.
 - A pin made at once after a save (a third of the pins that follow one) is made before anything else is read; the
   others wait until the patch's cross-fade is over.
+- A click made inside the cross-fade is made on a point the browser hits as `<html>`; the widget waits for the
+  transition (#393), so what it pins is the element under that point once the fade is over. The test reads that
+  moment (`settle`, started before the click) and judges the element, its words, its box and the place on it
+  against it, not against the transient `<html>` hit.
 - Next draws the test's elements on the server: no `written at` is fine there; one that names a file must name the
   route's.
 - Vue writes markup with nothing bound in it as one piece of HTML: two of the four targets of a Vue route have a
@@ -379,10 +383,28 @@ installed once by `prepare`; nothing goes into this checkout) and its project fi
 own: every route has four marked elements on lines the test wrote (`h1`…`h4` on the home route, `a1`…`a4` on about).
 What a pin must say there: React (Vite, React 18): `component: Home (in App)` and `written at: src/pages/Home.jsx:<line>`;
 Vue: the component and `written at: src/pages/Home.vue` (no line); Astro: `written at: src/pages/index.astro:<line>:<col>`
-(from `data-astro-source-file` / `-loc`); Next (app router, server components): nothing has to be said, what is said
+(from `data-astro-source-file` / `-loc`, which Astro's dev toolbar takes off the elements after load: the widget keeps their
+values as they are removed, `bindAnchoring` in `src/widget/anchoring.ts`); Next (app router, server components): nothing has to be said, what is said
 must name `app/page.jsx`; Vite without a framework, webpack and the static server: no source, and `file:` /
 `in file:` as for plain pages. Then lines are put at the top of the route's file: a pin made before must not give the
 old line as if it were today's, a pin made after (the page updated hot, or loaded again) must give the new one.
+
+**The `written at:` contract.** The widget reads a pin's source (file and line) once, when the pin is made. The agent's text
+(`labit wait`, `/_lab/agent/<page>`, `comments.md`) checks it against the file as it is when the text is read
+(`lib/source-line.mjs`, called from `agentText` in `local.mjs`): the element's tag and its first words must start on that line.
+So a `written at:` line is one of: `file:line[:col]` (checked, right now); `file:line (line from when it was pinned; not
+checked: …)` (the file was not found here, the element has no words to find it by, or its words are not written out in the
+file: a variable, a loop); `file:line (the pin recorded line N, which the file no longer has there; found again by its tag and
+words)` (moved: the new line, only when the element is found exactly once); `file (the pin recorded line N; … now start on lines
+a, b: check which)`; `file (the pin recorded line N; … not found again: moved, edited or gone)` (no line named, never a guess).
+The check says "the pin recorded line N" and not "was on line N when pinned": the line the widget recorded can itself be wrong
+(React hands a pin made after a hot update the line from before it, see below), and the server then corrects it. The test holds
+a line without a note to the element's line now, a line "from when it was pinned" to the line it had then, a moved line to the
+element's own line now, and "not found again" to an element that really did move. What cannot be told stays said as such:
+`component used at:` and a Vue file (no line) are not re-checked; React 19's "line N as served, may differ from the source" is
+the served module's line, not the file's; Astro names a source only on elements its compiler wrote (not on what a script adds,
+or on text from `set:html`), and only if the page was open before the toolbar took the attributes off (the widget starts with
+the page, so it is); a page whose project folder is not the lab's (a proxied app elsewhere) says "the file was not found here".
 
 **Runtime** (this Mac, 18 cores): `--smoke --area context` 20 cases in 40 to 80 s; 300 cases at 8 at once in
 6 min 20 s with the default two confirming reruns and at most 5 shrinking runs per new signature; the default 600 cases should take about
@@ -403,9 +425,9 @@ reported as NEW. Each was replayed and read against the code; the report prints 
 | `page-errors-missing` with `cause=another-device-reported-its-own-errors` (8) | **labit bug.** One list per page, replaced whole by whichever tab posted last (`local.mjs:2353`) |
 | `page-errors-on-another-page` with `reached=client-side` (11; React 7, Astro 3, Next 1) | **labit bug.** The widget keeps one list per page load (`oops`, `src/widget/live.ts:232`) and posts all of it under the route shown at that moment (`page: W.S.page`, `live.ts:240`): after the app goes to another route, that route's text lists the first route's errors |
 | `comments-md-differs-from-the-agent-text` with `what=the-page-errors` (14), `what=a-pin's-in-file-line` (7) | **labit bug (stale file).** `.lab/comments.md` is put together from each page's text as of the last time its comments changed (`local.mjs:985-1001`, `texts.set` only for pages marked dirty): errors that came or went since, and `in file:` lines after the file was saved, are the old ones |
-| `source-missing` (23, all Astro) | **labit bug.** `written at` is read from `data-astro-source-file` / `-loc` in the DOM (`src/widget/anchoring.ts:589-590`); Astro's dev toolbar takes both attributes off every element right after the page loads (`astro/dist/runtime/client/dev-toolbar/apps/audit/annotations.js`, astro 7.4.13, the default). No pin on a real Astro dev page names its source (`test/browser/anchoring.mjs` checks a hand-written attribute) |
-| `source-line-wrong` with `made=after-the-edit` (25, all React) | **labit bug.** `componentAt` reads the fiber the DOM node was made with (`src/widget/components.ts:30`); after a hot update React keeps the new `_debugSource` on its `alternate`. A pin made after a save names the line from before it (measured: line 6 on the node's fiber, 9 on its alternate after 3 lines were put above) |
-| `source-line-stale-after-edit` (25, all React) | **by design, with nothing saying so.** The source is read once when the pin is made (`anchoring.ts:584`) and printed as `written at:` (`lib/comments-api.mjs:332`); the text's own head says to trust the file first. `in file:` for plain pages is worked out anew at every read (`local.mjs:772`) and stays right |
+| `source-missing` (23, all Astro) | **labit bug, fixed 21 Nov** (23 of 23 Astro cases pass now, 9 in Chromium and 14 in WebKit). `written at` was read from `data-astro-source-file` / `-loc` in the DOM at pin time; Astro's dev toolbar takes both attributes off every element right after the page loads (`astro/dist/runtime/client/dev-toolbar/apps/audit/annotations.js`, astro 7.4.13, the default). `bindAnchoring` now keeps the values from the removal records of a `MutationObserver` (`attributeOldValue`), also for elements added later, and still reads a live attribute first (toolbar off). `test/browser/pincontext.mjs` has a page that takes them off the way the toolbar does |
+| `source-line-wrong` with `made=after-the-edit` (25, all React) | **labit bug, still there in the widget; the text is right since 21 Nov** (the server re-reads the file, see the contract above: it names the element's line now). `componentAt` reads the fiber the DOM node was made with (`src/widget/components.ts:30`); after a hot update React keeps the new `_debugSource` on its `alternate`. A pin made after a save names the line from before it (measured: line 6 on the node's fiber, 9 on its alternate after 3 lines were put above) |
+| `source-line-stale-after-edit` (25, all React) | **by design, now said and mostly corrected (21 Nov).** The source is read once when the pin is made (`anchoring.ts`) and was printed as `written at:` (`lib/comments-api.mjs`) with nothing saying so. Since then `lib/source-line.mjs` checks it against the file at every read (the contract above): 0 of the 300 cases of seed 1 have a stale line without a note. `in file:` for plain pages is worked out anew at every read (`lineHints`, `local.mjs`) and stays right |
 | `source-names-another-file` with `names=a-built-file` (7, all Next) | **labit bug.** For React 19 the first stack frame outside `node_modules` is taken (`components.ts:20-26`); for a server component under Next 16 that is `.next/dev/server/chunks/ssr/[root-of-the-server]__….js`. `repoPath` (`components.ts:12`) takes the leading slash off, so the lab's root is not cut from it (`local.mjs:763`), and the cut at 200 takes the end of the "(line N as served, may differ…" note. The page's own `file: app/page.jsx` line is right |
 | `source-missing` with `markup=static` (8, all Vue) | **a limit of labit.** `components.ts:45` reads `__vueParentComponent` of the clicked element only; Vue writes markup with nothing bound in it as one piece of HTML, whose elements carry none. Elements with a bound attribute get their component and file |
 | `context-holds-the-widgets-own-attribute` with `attr=data-lab-anchor` (11), `context-differs-between-two-reads` with `line=element` (1) | **labit bug, small.** A pin on a sticky, fixed or transformed element is held by CSS anchoring: the widget writes `data-lab-anchor` on the page's element (`src/widget/pinhold.ts:104`), and the tag a pin saves takes every `data-*` attribute (`anchoring.ts:517`). The next pin on it, and the next "found" report, carry `data-lab-anchor="lab3"` |
@@ -413,14 +435,17 @@ reported as NEW. Each was replayed and read against the code; the report prints 
 | `pin-during-a-patch-fade-lands-on-the-page-itself` (7) | **labit bug, a narrow window.** A save is patched in inside `document.startViewTransition` (`src/widget/live.ts:609`); for the cross-fade (about 250 ms; in WebKit only when the page is not scrolled) the browser hits nothing but `<html>`, and a click in that time makes a pin on `<body>` ("on the page itself, no element") |
 | `agent-text-malformed` with `what=a-broken-character`: `line=element` (8), `line=text` (4), `line=page-errors` (10, hand-built posts) | **labit bug, small.** Half an emoji (U+FFFD in the text): an attribute's value is cut at 60 inside the tag (`anchoring.ts:520`); the 40 characters before and after selected words are cut by count (`src/widget/drag.ts:175-176`, `lib/comments-api.mjs:195`); an error is cut at 200 (`local.mjs:2353`, and `live.ts:234` before it). `lib/comments-api.mjs:83` only mends a cut at a field's end |
 | `agent-text-malformed` with `what=a-line-separator` (8, hand-built posts) | **labit bug, small, only by a direct POST.** `/_lab/errors` takes control characters out (`\p{Cc}`, `local.mjs:2353`); U+2028 and U+2029 are not among them. The widget's own report squashes them (`\s+`, `live.ts:234`); a page's script that posts to `/_lab/errors` itself can put a line end, and a `## …` heading after it, into the line |
-| `drawing-read-on-another-element` with `mark=underlined` (1) | **labit bug.** A straight line is "crossed out" only when a letter stands within 3 px of its exact middle (`letterAt`, `src/widget/draw.ts:62-78`, asked at `draw.ts:152`); on a space, or the far half of a wide letter (Chinese, Japanese, Korean), it is read as "underlined", the area grows up to the line above (`draw.ts:157-163`) and the drawing lands on the list, with the item above in its words |
+| `drawing-read-on-another-element` with `mark=underlined` (1) | **labit bug, fixed 21 Nov.** A straight line is "crossed out" only when a letter stands within 3 px of its exact middle (`letterAt`, `src/widget/draw.ts`); the caret stands at the nearer edge of a letter, so on the far half of a wide one (Chinese, Japanese, Korean, an emoji; 4 px of a 16 px glyph, 1 px of an ordinary letter) it was the next letter's edge, more than 3 px off, and the line was read as "underlined": the area grew up to the line above and the drawing landed on the list. Measured with 12 wobbly (±2.5 px) strokes per line: 11/12 (Latin), 8-9/12 (CJK), 10/12 (emoji) crossed out before, 12/12 everywhere after. A second cause, also fixed: a drawing's 28 px hit area lies over its words, so a second line through the same words found the page's overlay under the point and read as "underlined" (`letterAt` lets the line through while it asks). A third is the test's: an element with only white space has no words to go through, and a line across its box is an underline of the words above it (not drawn on any more) |
 | unclear: `agent-text-holds-a-control-character` (45), `pin-inside-a-frame-is-the-framed-pages` (7), `selector-leads-nowhere` with `where=web-component` (3), `spot-changed-said-of-an-untouched-element` with `shape=hidden-twins` (1) | NUL, ESC, NEL and the like in a hand-built field reach the text (one line still); a pin in a framed page is that page's, with the frame's size as its viewport; a web component's selector matches nothing on a page with a `<main>`; a paragraph with four hidden twins is told as "may have moved" after the page changed elsewhere |
 
 Harness artifacts found on the way and fixed (none is left in the run): errors thrown by a function the test had put
 into the page were hidden by WebKit ("Script error."); a drag that began on an earlier pin moved that pin, one that
 began on the widget's bar made a plain pin, a press on an earlier drawing wrote a reply; D and Shift never reached a
 frame without the focus; a pin moved by a step was compared with its first hand-off; `…n1` matched `…n10` in the
-errors; a space at the end of a cut text; a click's place rounded to a whole pixel.
+errors; a space at the end of a cut text; a click's place rounded to a whole pixel; a line drawn on the page after a pin inside an
+`<iframe>` (the frame still had the focus, so D reached only the frame's widget and the line was a plain box: `context-drawing-missing`;
+the draw step now takes the focus to the page it draws in); a line through the empty box of a white-space element
+(`drawing-read-on-another-element`, and the phone's `pin-drawn-off-its-element` that followed from the area being the list's).
 
 **Limits.** A phone is a phone's viewport in a desktop engine, its held finger made of pointer events put into the
 page (`isTrusted` false). Pins inside a frame are made by click and by area only (keys go to the page that has the
@@ -444,6 +469,8 @@ there (anything about the page's own elements), and the raw devices' rules are c
 
 In a quarter of the agent-sync cases the phone is "held": each answer and live message reaches it up to 15, 40 or
 80 ms late, each by its own amount, as on a slow wifi. Failures that need that carry `held=answers-held`.
+A device asks `/_lab/api/changes` one at a time, in the order asked, as the widget does; `TORTURE_SERIAL_CHANGES=0` makes it
+ask them all at once and apply each answer as it arrives (the widget's old way), to see what asking in order fixes.
 
 ## Known bugs and their signatures
 

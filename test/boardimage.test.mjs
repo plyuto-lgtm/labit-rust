@@ -159,6 +159,10 @@ test('the agent adds a picture, reads a pin on it as a frame with its file, and 
   const pick2 = await labit('pick', 'agent', 'b');
   assert.match(pick2.out, /Picked b\. Archived a\./);
   assert.ok(fs.existsSync(path.join(DIR, '.lab/boards/agent/b.png')));
+  // a pin near a frame that was taken off says so
+  const onGone = await fetch(`${B}/_lab/api/comments`, { method: 'POST', headers: { 'content-type': 'application/json', origin: B }, body: JSON.stringify({ page: '/_board/agent', name: 'Leo', text: 'what was here?', anchor: { kind: 'board', board: 'agent', frame: 'a', fx: 5, fy: 6, bx: 5, by: 6 } }) }).then((r) => r.json());
+  assert.ok(onGone.comment);
+  assert.match(await text('/_board/agent'), /near: frame a \(\/pricing at 1440×900, archived\), 5 px right of its left edge/);
   const pt = await text('/_board/agent/b');
   assert.match(pt, /picked: a archived\./);
   assert.doesNotMatch(pt, /Delete the variant files/);
