@@ -47,7 +47,7 @@ test('a pin from the app is listed, reaches the agent with where the Rust code i
 
   const handed = (await cli('wait', '--bg', '--timeout', '5')).out;
   assert.match(handed, /^component: Stepper$/m);
-  assert.match(handed, /^written at: bridge\/crates\/ui\/src\/stepper\.rs:88$/m);
+  assert.match(handed, /^written at: bridge\/crates\/ui\/src\/stepper\.rs:88\b/m);
   assert.match(handed, /^component used at: bridge\/app\/src\/board\.rs:120$/m);
   assert.match(handed, /Drawn by GPUI/);
 
