@@ -4,7 +4,7 @@
 import fs from 'node:fs';
 import path from 'node:path';
 import { claimPort } from './port.mjs';
-import { playwright, engines, tmp, labEnv, startLab, labUp, sleep, check, finish } from './harness.mjs';
+import { playwright, engines, tmp, labEnv, startLab, labUp, sleep, check, finish, withAlt } from './harness.mjs';
 
 const pw = playwright();
 
@@ -33,10 +33,10 @@ try {
       const sh = (fn) => p.evaluate((f) => new Function('r', f)([...document.querySelectorAll('*')].find((n) => n.shadowRoot?.querySelector('.scrim')).shadowRoot), fn);
       const rect = (id) => p.evaluate((i) => { const r = document.querySelector('[data-lab-board-view]')?.shadowRoot?.querySelector(`#lab-board .f[data-id="${i}"]`).getBoundingClientRect(); return { x: r.x, y: r.y, w: r.width }; }, id);
       const a = await rect('a');
-      // a tap in comment mode on frame a, 100 px right and 150 px down of its corner (screen px)
-      await p.mouse.click(a.x + 100, a.y + 150);
+      // an ⌥-click on frame a, 100 px right and 150 px down of its corner (screen px)
+      await withAlt(p, () => p.mouse.click(a.x + 100, a.y + 150));
       await p.waitForFunction(() => { const r = [...document.querySelectorAll('*')].find((n) => n.shadowRoot?.querySelector('.scrim')).shadowRoot; return Boolean(r.querySelector('textarea')); }, null, { timeout: 4000 }).catch(() => {});
-      check(eng, 'a tap in comment mode opens the new-comment box on the board', await sh('return Boolean(r.querySelector("textarea"))'));
+      check(eng, 'an ⌥-click opens the new-comment box on the board', await sh('return Boolean(r.querySelector("textarea"))'));
       await p.keyboard.type('too tight here');
       await p.keyboard.press('Enter');
       let saved;
@@ -61,7 +61,7 @@ try {
       await p.keyboard.press('Shift+Digit1');
       await sleep(500);
       const a3 = await rect('a');
-      await p.mouse.click(a3.x + 20, a3.y + 20); // comment mode: a tap pins (or only lets the sent pin's undo card go); close a box it opened
+      await p.mouse.click(a3.x + 20, a3.y + 20); // a plain click only lets the sent pin's undo card go; close a box if one opened
       await sleep(300);
       if (await sh("return Boolean(r.querySelector('.float textarea'))")) await p.keyboard.press('Escape'); // Esc on an empty board would leave it
       await sleep(200);

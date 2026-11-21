@@ -8,7 +8,7 @@
 import fs from 'node:fs';
 import path from 'node:path';
 import { claimPort } from './port.mjs';
-import { playwright, engines, tmp, labEnv, startLab, labUp, sleep, check, finish } from './harness.mjs';
+import { playwright, engines, tmp, labEnv, startLab, labUp, sleep, check, finish, withAlt } from './harness.mjs';
 
 const pw = playwright();
 
@@ -34,7 +34,7 @@ try {
       const note = async (x, y, words) => {
         const n = await pins();
         await sleep(200);
-        await p.mouse.click(x, y);
+        await withAlt(p, () => p.mouse.click(x, y));
         await sleep(400);
         await p.keyboard.type(words);
         await p.keyboard.press('Enter');
@@ -88,9 +88,8 @@ try {
       const d0 = await dots();
       check(eng, 'the canvas is a grid of dots: one background, sized by the zoom', Boolean(d0) && /radial-gradient/.test(d0.img) && d0.kids === 0 && Math.abs(d0.size - 32 * d0.z) < 0.5, JSON.stringify(d0));
 
-      // ----- half: the page scrolls under the view, the board's pins stay put in every frame
-      await p.click('[data-lab-board-view] .bv-size');
-      await sleep(600);
+      // ----- half (as a board opens): the page scrolls under the view, the board's pins stay put in every frame
+      check(eng, 'the board opened at half the window', Math.abs((await rect('[data-lab-board-view]')).h - 400) < 2);
       await p.evaluate(() => scrollTo(0, document.getElementById('two').getBoundingClientRect().top + scrollY - 650)); // the page pin starts under the view
       await sleep(400);
       await p.mouse.move(600, 150); // over the page, above the view
@@ -136,7 +135,10 @@ try {
       const held = drag.slice(2);
       const tops = held.map((r) => r[8]);
       const jumps = tops.slice(1).map((t, i) => Math.abs(t - tops[i]));
-      check(eng, 'dragging the edge: the zoom is not fitted again and the frames and the pin stay where they are on the screen', spread(held, 5) < 1e-9 && spread(held, 6) < 0.6 && spread(held, 7) < 0.6 && spread(held, 0) < 0.6 && spread(held, 1) < 0.6, JSON.stringify([spread(held, 5), spread(held, 6), spread(held, 7), spread(held, 0), spread(held, 1)]));
+      // The board's zoom and place in the view are kept: the frames and the pin go with the view's top edge (Leo, 21 Nov:
+      // "closing/opening board drawer should not move zoom/position inside board").
+      const inView = (i) => held.map((r) => [r[i] - r[8]]);
+      check(eng, 'dragging the edge: the zoom is not fitted again and the frames and the pin keep their place in the view', spread(held, 5) < 1e-9 && spread(held, 6) < 0.6 && spread(inView(7), 0) < 0.6 && spread(held, 0) < 0.6 && spread(inView(1), 0) < 0.6, JSON.stringify([spread(held, 5), spread(held, 6), spread(inView(7), 0), spread(held, 0), spread(inView(1), 0)]));
       check(eng, 'dragging the edge: it follows the pointer, no jump to full and back near the top', spread(held, 8) > 300 && Math.max(...jumps) < 40, JSON.stringify([spread(held, 8), Math.max(...jumps)]));
       await p.mouse.move(g.x, 10);
       await p.mouse.up();

@@ -2,7 +2,7 @@
 // middle of a stroke and between two strokes, far down a long page, on and across a link and a button, into and out of
 // an iframe, on a fixed header, and on a zoomed page.
 // Run: NODE_PATH=… ENGINES=chromium node test/browser/edge-draw3.mjs   (also ENGINES=webkit)
-import { box, check, done, drawn, eachEngine, go, lab, letters, look, mark, note, ring, said, send, sleep, stroke, until, known } from './edge-draw-kit.mjs';
+import { box, check, done, drawn, eachEngine, go, lab, letters, look, mark, note, ring, said, send, sleep, stroke, until, known, sentAfter } from './edge-draw-kit.mjs';
 
 const css = 'body{margin:40px;font:20px/1.5 sans-serif} h1{margin:0 0 80px} p{width:600px;margin:0 0 60px}';
 const head = (extra = '') => `<!doctype html><meta charset="utf-8"><title>d</title><style>${css}${extra}</style>`;
@@ -31,8 +31,9 @@ try {
     const h = await box(p, 'h');
     const e1 = await drawn(p, [ring(60, h.cy, 100, 40)]);
     const s1 = await seen();
-    check(eng, 'a loop that runs off the left edge of the window: its box opens, the lines cover what the pointer did, nothing is stuck', e1.box && e1.draftInk === 1 && !e1.dragging && near(e1.draftAt.l, Math.round(s1.l), 3) && near(e1.draftAt.r, Math.round(s1.r), 3), short({ pointerSeen: s1, draft: e1.draftAt }));
-    if (e1.box) await send(p);
+    if (e1.sent) await send(p);
+    const e1At = (await look(p)).inkAt[0];
+    check(eng, 'a loop that runs off the left edge of the window: it is sent, the lines cover what the pointer did, nothing is stuck', e1.inkPins >= 1 && !e1.dragging && Boolean(e1At) && near(e1At.l, Math.max(0, Math.round(s1.l)), 3) && near(e1At.r - e1At.l, Math.round(s1.r - s1.l), 3), short({ pointerSeen: s1, sent: e1At })); // held to the page's left edge, its size kept
     const edge = await L.agent('edge');
     const eA = (await inks('edge'))[0]?.anchor;
     check(eng, 'sent, it is still a loop round the heading for the agent, every point inside the area (0–1000)', /drawn: (circled|box)/.test(edge) && /Pricing/.test(edge) && (eA?.ink.pts.flat() || [-1]).every((v) => v >= 0 && v <= 1000), said(edge));
@@ -48,10 +49,10 @@ try {
     await p.mouse.move(c.l + 80, 760, { steps: 8 });
     await p.mouse.up();
     await p.keyboard.up('d');
-    await until(p, '.float textarea', 2000);
+    await sentAfter(p, 0);
     const f1 = await look(p);
     const s2 = await seen();
-    check(eng, 'a stroke let go below the window\'s bottom edge: the lift is seen, the box opens, nothing is left dragging', f1.box && f1.draftInk === 1 && !f1.dragging && !f1.live, short({ pointerSeen: s2, draft: f1.draftAt, dragging: f1.dragging, live: f1.live }));
+    check(eng, 'a stroke let go below the window\'s bottom edge: the lift is seen, it is sent, nothing is left dragging', f1.inkPins >= 1 && !f1.dragging && !f1.live, short({ pointerSeen: s2, draft: f1.inkAt.at(-1), dragging: f1.dragging, live: f1.live }));
     await p.keyboard.press('Escape');
     await p.mouse.move(300, 300);
     await sleep(100);
@@ -72,11 +73,11 @@ try {
     await p.mouse.move(500, 302, { steps: 10 });
     await p.mouse.up();
     await p.keyboard.up('d');
-    await until(p, '.float textarea', 2000);
+    await sentAfter(p, 0);
     const m2 = await look(p);
     check(eng, 'the page scrolled 200 px mid-stroke: the part already drawn stays on the words it was drawn on (it scrolls with the page)', sc === 200 && near(yOf(m0.liveD)[1], 300, 3) && near(yOf(m1.liveD)[1], 300, 3), `scrolled ${sc}; the stroke began at page y ${yOf(m0.liveD)[1]}, after the scroll its start is drawn at page y ${yOf(m1.liveD)[1]}`);
     // On the page the pen went along y 300, then (the page having moved under it) along y 500: 200 px tall.
-    check(eng, 'the page scrolled mid-stroke: the drawing\'s area covers both places the pen was on the page (about 200 px tall)', m2.box && m2.draftAt && m2.draftAt.b - m2.draftAt.t > 180, short({ draft: m2.draftAt, tall: m2.draftAt ? m2.draftAt.b - m2.draftAt.t : 0 }));
+    check(eng, 'the page scrolled mid-stroke: the drawing\'s area covers both places the pen was on the page (about 200 px tall)', m2.inkPins >= 1 && m2.inkAt.at(-1) && m2.inkAt.at(-1).b - m2.inkAt.at(-1).t > 180, short({ draft: m2.inkAt.at(-1), tall: m2.inkAt.at(-1) ? m2.inkAt.at(-1).b - m2.inkAt.at(-1).t : 0 }));
     await p.keyboard.press('Escape');
 
     // 4. Two strokes of one drawing, the page scrolled between them: an underline under row 2, another under row 4.
@@ -89,11 +90,11 @@ try {
     const r4 = await letters(p, 'r4', 0, 5);
     await stroke(p, [[r4.l, r4.b + 3], [r4.l + 180, r4.b + 4]]);
     await p.keyboard.up('d');
-    await until(p, '.float textarea', 2000);
+    await sentAfter(p, 0);
     const b1 = await look(p);
-    if (b1.box) await send(p);
+    if (b1.sent) await send(p);
     const between = await L.agent('between');
-    known(eng, 'two strokes with a scroll between them (under row 2, then under row 4): the area holds both rows, 200 px apart', b1.box && b1.draftAt.b - b1.draftAt.t > 180 && /row 2/.test(between) && /row 4/.test(between), `${short({ draft: b1.draftAt, sameSpotOnScreen: near(r2.b, r4.b, 2) })} ${said(between)}`);
+    known(eng, 'two strokes with a scroll between them (under row 2, then under row 4): the area holds both rows, 200 px apart', b1.inkPins >= 1 && b1.inkAt.at(-1).b - b1.inkAt.at(-1).t > 180 && /row 2/.test(between) && /row 4/.test(between), `${short({ draft: b1.inkAt.at(-1), sameSpotOnScreen: near(r2.b, r4.b, 2) })} ${said(between)}`);
 
     // 5. Far down a long page: the drawing is where it was drawn, and stays on its words as the page scrolls.
     await go(p, L.B, 'deep');
@@ -117,10 +118,10 @@ try {
     await p.keyboard.down('d');
     await stroke(p, [[lk.l + 6, lk.cy], [lk.l + 60, lk.b + 30], [lk.l + 200, lk.b + 34]]);
     await p.keyboard.up('d');
-    await until(p, '.float textarea', 1500);
+    await sentAfter(p, 0);
     const k1 = await look(p);
     const hash1 = await p.evaluate(() => location.hash);
-    check(eng, 'D held, a stroke that starts on a link\'s words: it draws (a box opens with the lines), the link is not followed', k1.box && k1.draftInk === 1 && hash1 === '', short({ box: k1.box, draftInk: k1.draftInk, hash: hash1 }));
+    check(eng, 'D held, a stroke that starts on a link\'s words: it draws (and is sent), the link is not followed', k1.inkPins >= 1 && hash1 === '', short({ sent: k1.inkPins, draftInk: k1.draftInk, hash: hash1 }));
     check(eng, 'D held, a stroke that starts on a link: whatever it does, letting D go does not also show or hide done pins', k0.hideDone === k1.hideDone, `lab-hide-done "${k0.hideDone}" -> "${k1.hideDone}"`);
     await p.keyboard.press('Escape');
 
@@ -131,9 +132,9 @@ try {
     const a7 = await box(p, 'a');
     const x1 = await drawn(p, [[[a7.l + 4, lk2.b + 2], [lk2.cx, lk2.b + 3], [bt.cx, bt.b - 4]]]);
     const st = await p.evaluate(() => ({ hash: location.hash, clicks: window.__clicks || 0 }));
-    if (x1.box) await send(p);
+    if (x1.sent) await send(p);
     const across = await L.agent('across');
-    check(eng, 'a stroke that starts on plain words, runs under a link and is let go on a button: a drawing, the link not followed, the button not pressed', x1.box && x1.draftInk === 1 && st.hash === '' && st.clicks === 0 && /type: drawing/.test(across) && /full terms/.test(across), `${short(st)} ${said(across)}`);
+    check(eng, 'a stroke that starts on plain words, runs under a link and is let go on a button: a drawing, the link not followed, the button not pressed', x1.inkPins >= 1 && st.hash === '' && st.clicks === 0 && /type: drawing/.test(across) && /full terms/.test(across), `${short(st)} ${said(across)}`);
 
     // 8. A stroke that starts above an iframe and is let go inside it.
     await go(p, L.B, 'frame');
@@ -147,9 +148,9 @@ try {
     await p.mouse.move(a8.l + 120, fr.t + 80, { steps: 10 });
     await p.mouse.up();
     await p.keyboard.up('d');
-    await until(p, '.float textarea', 2000);
+    await sentAfter(p, 0);
     const f8 = await look(p);
-    check(eng, 'a stroke from the page into an iframe, let go inside it: the stroke follows the pointer into the frame, the box opens, nothing is left dragging', f8.box && f8.draftInk === 1 && !f8.dragging && !f8.live && f8.draftAt.b > fr.t + 60, short({ frameTop: Math.round(fr.t), draft: f8.draftAt, dragging: f8.dragging, live: f8.live }));
+    check(eng, 'a stroke from the page into an iframe, let go inside it: the stroke follows the pointer into the frame, it is sent, nothing is left dragging', f8.inkPins >= 1 && !f8.dragging && !f8.live && f8.inkAt.at(-1).b > fr.t + 60, short({ frameTop: Math.round(fr.t), draft: f8.inkAt.at(-1), dragging: f8.dragging, live: f8.live }));
     await p.keyboard.press('Escape');
     await p.keyboard.up('d');
 
@@ -223,7 +224,7 @@ try {
       const want = { l: Math.round(z.l - 16), r: Math.round(z.r + 16), t: Math.round(z.mid - 30), b: Math.round(z.mid + 30) };
       const at = (r) => Boolean(r) && near(r.l, want.l, 8) && near(r.t, want.t, 8) && near(r.r, want.r, 8) && near(r.b, want.b, 8);
       const z1 = await drawn(q, [ring((z.l + z.r) / 2, z.mid, (z.r - z.l) / 2 + 16, 30)]);
-      if (z1.box) await send(q);
+      if (z1.sent) await send(q);
       const z2 = (await look(q)).inkAt[0];
       const text = await L.agent(page);
       // A plain area over the same words, to tell a drawing's own fault from any area's.
@@ -231,7 +232,7 @@ try {
       await until(q, '.float textarea', 2000);
       const plain = (await look(q)).zoneAt;
       await q.keyboard.press('Escape');
-      (name.includes('(html)') ? known : check)(eng, `${name}: the draft's lines are where the pointer drew them, and the sent drawing too`, z1.box && at(z1.draftAt) && at(z2), `${short({ want, draft: z1.draftAt, sent: z2 })}; a plain area there is ${at(plain) ? 'in place' : `off too (${short(plain)})`}`);
+      (name.includes('(html)') ? known : check)(eng, `${name}: the sent drawing's lines are where the pointer drew them`, z1.inkPins >= 1 && at(z2), `${short({ want, draft: z1.inkAt.at(-1), sent: z2 })}; a plain area there is ${at(plain) ? 'in place' : `off too (${short(plain)})`}`);
       check(eng, `${name}: it reads as circled, with the words in it`, /drawn: (circled|box)/.test(text) && /Plans start/.test(text), said(text));
     };
     const zctx = await browser.newContext({ viewport: { width: 667, height: 467 }, deviceScaleFactor: 1.5 });

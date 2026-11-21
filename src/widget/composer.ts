@@ -68,6 +68,14 @@ const sweep = () => {
 
 // The send arrow is drawn with CSS (a stem and a chevron), no picture.
 const ARROW = '<i class="arr" aria-hidden="true"></i>';
+// Whether words are wider than the field shows them, in its font.
+let ruler: CanvasRenderingContext2D | null = null;
+const wide = (words: string, field: HTMLTextAreaElement) => {
+  ruler ||= document.createElement('canvas').getContext('2d');
+  if (!ruler || !field.clientWidth) return false;
+  ruler.font = getComputedStyle(field).font;
+  return ruler.measureText(words).width > field.clientWidth;
+};
 
 // The words as sent: a stray space doesn't go with them (Leo, 19 Nov). Safari's no-break space, two spaces where the
 // keyboard's suggestion added one before the next word, and spaces at a line's end become what was meant. A line's
@@ -180,7 +188,14 @@ export function composer({ placeholder, onSubmit, autofocus = false, opened = fa
     void box.offsetHeight;
     text.style.height = '';
     const cap = parseFloat(getComputedStyle(text).maxHeight) || 200;
-    const tall = one && (text.scrollHeight > cap || (box.classList.contains('tall') && text.scrollHeight > cap - 40));
+    // A placeholder too long for the row beside the name and the arrow (a drawing's "2 strokes, unclear mark (go by …)"):
+    // the wide layout too, so it reads whole (Leo, 21 Nov: "why on drawing comment input doesnt full sizing"). Kept while
+    // the box is empty and says the same, since in the wide layout it fits.
+    const ph = one && !text.value ? text.placeholder : '';
+    const long = Boolean(ph) && (box.dataset.long === ph || (!box.classList.contains('tall') && wide(ph, text)));
+    if (long) box.dataset.long = ph;
+    else delete box.dataset.long;
+    const tall = one && (long || text.scrollHeight > cap || (box.classList.contains('tall') && text.scrollHeight > cap - 40));
     if (tall !== box.classList.contains('tall')) box.classList.toggle('tall', tall);
     const over = text.scrollHeight > cap + 1;
     text.style.overflowY = over ? 'auto' : 'hidden'; // a scrollbar only once the box is at its tallest

@@ -4,7 +4,7 @@
 // In Chrome's engine the pen and the palm are real (trusted) pointer events, sent through its devtools; Safari's
 // engine has no such door, so there the same pointer events are made in the page (isTrusted false).
 // Run: NODE_PATH=… ENGINES=chromium node test/browser/edge-draw4.mjs   (also ENGINES=webkit)
-import { box, check, done, eachEngine, go, lab, look, mark, note, penFor, ring, said, send, sleep, until } from './edge-draw-kit.mjs';
+import { box, check, done, eachEngine, go, lab, look, mark, note, penFor, ring, said, send, sleep, until, sentAfter } from './edge-draw-kit.mjs';
 
 const PAGE = '<!doctype html><meta charset="utf-8"><meta name="viewport" content="width=device-width"><title>p</title><style>body{margin:40px;font:20px/1.5 sans-serif} h1{margin:0 0 80px} p{width:600px;margin:0 0 60px}</style><h1 id="h">Pricing</h1><p id="a">Plans start small and grow with you</p><p id="b">Cancel any time from your account</p><p id="c">Questions go to the team</p><div style="height:900px"></div>';
 const NAMES = ['pen', 'soft', 'flat', 'hover', 'two', 'palm', 'rest'];
@@ -39,22 +39,23 @@ try {
     await p.keyboard.down('d');
     await penStroke(pen, await around('a'));
     await p.keyboard.up('d');
-    await until(p, '.float textarea', 2500);
+    await sentAfter(p, 0); // sent by itself (no box)
+    await send(p); // its undo card let go: the pin drawn as it rests
     const p1 = await look(p);
     const s1 = (await seen())[0];
-    if (p1.box) await send(p);
     const penText = await L.agent('pen');
-    check(eng, `${how} with D held draws: seen as a pen${trusted ? ' (trusted)' : ''}, the box opens with the lines, the agent reads a loop round the words`, s1?.type === 'pen' && s1.trusted === trusted && p1.box && p1.draftInk === 1 && /type: drawing/.test(penText) && /drawn: (circled|box)/.test(penText) && /Plans start/.test(penText), `${short(s1)} ${said(penText)}`);
+    check(eng, `${how} with D held draws: seen as a pen${trusted ? ' (trusted)' : ''}, sent with its lines, the agent reads a loop round the words`, s1?.type === 'pen' && s1.trusted === trusted && p1.inkPins >= 1 && /type: drawing/.test(penText) && /drawn: (circled|box)/.test(penText) && /Plans start/.test(penText), `${short(s1)} ${said(penText)}`);
 
     // 2. A pen that reports no pressure at all (some do, some styluses always).
     ({ pen, touch, trusted } = await open('soft'));
     await p.keyboard.down('d');
     await penStroke(pen, await around('a'), { force: 0 });
     await p.keyboard.up('d');
-    await until(p, '.float textarea', 2500);
+    await sentAfter(p, 0); // sent by itself (no box)
+    await send(p); // its undo card let go: the pin drawn as it rests
     const p2 = await look(p);
     const s2 = (await seen())[0];
-    check(eng, `${how} with pressure 0 still draws`, s2?.type === 'pen' && s2.pressure === 0 && p2.box && p2.draftInk === 1 && p2.draftAt.r - p2.draftAt.l > 120, short({ seen: s2, draft: p2.draftAt }));
+    check(eng, `${how} with pressure 0 still draws`, s2?.type === 'pen' && s2.pressure === 0 && p2.inkPins >= 1 && p2.inkAt.at(-1).r - p2.inkAt.at(-1).l > 120, short({ seen: s2, draft: p2.inkAt.at(-1) }));
     await p.keyboard.press('Escape');
 
     // 3. A pen lying nearly flat (tilt 90 and -90).
@@ -62,12 +63,13 @@ try {
     await p.keyboard.down('d');
     await penStroke(pen, await around('a'), { tiltX: 90, tiltY: -90 });
     await p.keyboard.up('d');
-    await until(p, '.float textarea', 2500);
+    await sentAfter(p, 0); // sent by itself (no box)
+    await send(p); // its undo card let go: the pin drawn as it rests
     const p3 = await look(p);
     const s3 = (await seen())[0];
     const want = await box(p, 'a');
     // (Safari's engine drops the tilt of a pointer event made in the page: there only the drawing is checked.)
-    check(eng, `${how} tilted flat (90, -90) draws the same loop, where the tip was`, s3?.type === 'pen' && (Math.abs(s3.tiltX) === 90 || !trusted) && p3.box && p3.draftInk === 1 && Math.abs(p3.draftAt.l - (want.l + 60 - 70)) < 5 && Math.abs(p3.draftAt.t - (want.cy - 26)) < 5, short({ seen: s3, draft: p3.draftAt }));
+    check(eng, `${how} tilted flat (90, -90) draws the same loop, where the tip was`, s3?.type === 'pen' && (Math.abs(s3.tiltX) === 90 || !trusted) && p3.inkPins >= 1 && Math.abs(p3.inkAt.at(-1).l - (want.l + 60 - 70)) < 5 && Math.abs(p3.inkAt.at(-1).t - (want.cy - 26)) < 5, short({ seen: s3, draft: p3.inkAt.at(-1) }));
     await p.keyboard.press('Escape');
 
     // 4. A pen that only hovers over the glass (moves, no press) with D held.
@@ -90,11 +92,11 @@ try {
     await penStroke(pen, [[a5.l + 10, a5.t - 10], [a5.l + 75, a5.cy], [a5.l + 140, a5.b + 10]]);
     await penStroke(pen, [[a5.l + 140, a5.t - 10], [a5.l + 75, a5.cy], [a5.l + 10, a5.b + 10]]);
     await p.keyboard.up('d');
-    await until(p, '.float textarea', 2500);
+    await sentAfter(p, 0); // sent by itself (no box)
+    await send(p); // its undo card let go: the pin drawn as it rests
     const p5 = await look(p);
-    if (p5.box) await send(p);
     const two = await L.agent('two');
-    check(eng, `two quick strokes with ${how}, D held: one drawing, read as an X over the words`, p5.box && (await inks('two')).length === 1 && /drawn: X drawn over it/.test(two) && /Plans/.test(two), said(two));
+    check(eng, `two quick strokes with ${how}, D held: one drawing, read as an X over the words`, p5.inkPins >= 1 && (await inks('two')).length === 1 && /drawn: X drawn over it/.test(two) && /Plans/.test(two), said(two));
 
     // 6. The palm brushes the glass while the pen draws: it lands 400 px away, slides, lifts.
     ({ pen, touch, trusted } = await open('palm'));
@@ -109,14 +111,14 @@ try {
       if (i === 19) await touch.end();
     });
     await p.keyboard.up('d');
-    await until(p, '.float textarea', 2500);
+    await sentAfter(p, 0); // sent by itself (no box)
+    await send(p); // its undo card let go: the pin drawn as it rests
     const p6 = await look(p);
     const ev6 = await seen();
-    const wide = p6.draftAt ? p6.draftAt.r - p6.draftAt.l : 0;
+    const wide = p6.inkAt.at(-1) ? p6.inkAt.at(-1).r - p6.inkAt.at(-1).l : 0;
     const wantL = Math.round(a6.l + 10);
     const wantR = Math.round(a6.l + 190);
-    check(eng, `a palm that brushes the glass while ${how} draws: the drawing is the pen's whole loop and nothing of the palm's`, p6.box && p6.draftInk === 1 && Math.abs(p6.draftAt.l - wantL) < 6 && Math.abs(p6.draftAt.r - wantR) < 6 && p6.draftAt.b < palm[1] - 100, short({ want: { l: wantL, r: wantR, b: Math.round(a6.cy + 28) }, draft: p6.draftAt, wide, palmAt: palm, pointers: ev6.map((e) => `${e.k}:${e.type}`).join(',') }));
-    if (p6.box) await send(p, 'palm');
+    check(eng, `a palm that brushes the glass while ${how} draws: the drawing is the pen's whole loop and nothing of the palm's`, p6.inkPins >= 1 && Math.abs(p6.inkAt.at(-1).l - wantL) < 6 && Math.abs(p6.inkAt.at(-1).r - wantR) < 6 && p6.inkAt.at(-1).b < palm[1] - 100, short({ want: { l: wantL, r: wantR, b: Math.round(a6.cy + 28) }, draft: p6.inkAt.at(-1), wide, palmAt: palm, pointers: ev6.map((e) => `${e.k}:${e.type}`).join(',') }));
     const palmText = await L.agent('palm');
     check(eng, 'sent, that drawing reads as the loop it was (circled, with its words only), not as a mark that reaches the palm', /drawn: (circled|box)/.test(palmText) && /Plans start/.test(palmText) && !/Questions/.test(palmText), said(palmText));
     await p.keyboard.press('Escape');
@@ -135,12 +137,13 @@ try {
     });
     const mid7 = await look(p);
     await p.keyboard.up('d');
-    await until(p, '.float textarea', 2500);
+    await sentAfter(p, 0); // sent by itself (no box)
+    await send(p); // its undo card let go: the pin drawn as it rests
     await sleep(300);
     const p7 = await look(p);
-    const tall = p7.draftAt ? p7.draftAt.b - p7.draftAt.t : 0;
-    check(eng, `a palm resting ${rested} ms while ${how} draws: no pin is made under the palm, and the one box that opens is the drawing's`, p7.box && p7.draftInk === 1 && p7.draftPin === 0 && !mid7.box, short({ beforeDUp: { box: mid7.box, draftPin: mid7.draftPin, live: mid7.live }, after: { box: p7.box, draftInk: p7.draftInk, draftPin: p7.draftPin }, pointers: (await seen()).map((e) => `${e.k}:${e.type}`).join(','), strokeMs: Date.now() - t0 }));
-    check(eng, 'the palm lifting does not end the pen\'s stroke: the loop is whole (56 px tall), not cut where the palm left', tall >= 52, `the loop is 180×56; the draft is ${p7.draftAt ? `${p7.draftAt.r - p7.draftAt.l}×${tall}` : 'none'}`);
+    const tall = p7.inkAt.at(-1) ? p7.inkAt.at(-1).b - p7.inkAt.at(-1).t : 0;
+    check(eng, `a palm resting ${rested} ms while ${how} draws: no pin is made under the palm, and what is sent is the drawing`, p7.inkPins >= 1 && p7.draftPin === 0 && !mid7.box, short({ beforeDUp: { box: mid7.box, draftPin: mid7.draftPin, live: mid7.live }, after: { sent: p7.inkPins, draftInk: p7.draftInk, draftPin: p7.draftPin }, pointers: (await seen()).map((e) => `${e.k}:${e.type}`).join(','), strokeMs: Date.now() - t0 }));
+    check(eng, 'the palm lifting does not end the pen\'s stroke: the loop is whole (56 px tall), not cut where the palm left', tall >= 52, `the loop is 180×56; the draft is ${p7.inkAt.at(-1) ? `${p7.inkAt.at(-1).r - p7.inkAt.at(-1).l}×${tall}` : 'none'}`);
     await p.keyboard.press('Escape');
     note(eng, 'how the pen was made', trusted ? 'trusted pen and touch events through Chrome\'s devtools (Input.dispatchMouseEvent pointerType pen, Input.dispatchTouchEvent)' : 'PointerEvents of type pen and touch dispatched in the page (isTrusted false): Safari\'s engine has no other door');
     void mark;

@@ -214,10 +214,7 @@ try {
           for (let i = 1; i <= 22; i++) await p.mouse.move(c.x + 120 * Math.cos((i / 20) * 2 * Math.PI), c.y + 30 * Math.sin((i / 20) * 2 * Math.PI), { steps: 2 });
           await p.mouse.up();
           await p.keyboard.up('d');
-          await untilRoot(p, (r) => Boolean(r.querySelector('.box textarea')));
-          await p.keyboard.type('this, circled');
-          await p.keyboard.press('Enter');
-          await untilRoot(p, (r) => Boolean(r.querySelector('.pin.ink')));
+          await untilRoot(p, (r) => Boolean(r.querySelector('.pin.ink'))); // sent as it is, no box
           await p.keyboard.press('Escape');
           await sleep(500);
           await p.mouse.click(c.x + 120, c.y); // on its line

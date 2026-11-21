@@ -23,6 +23,9 @@ const server = startLab(DIR, labEnv());
 await labUp(B);
 const root = 'document.querySelector("*") && [...document.querySelectorAll("*")].find((n) => n.shadowRoot?.querySelector(".scrim"))?.shadowRoot';
 const has = (p, sel) => p.evaluate(([r, s]) => Boolean(new Function(`return ${r}`)()?.querySelector(s)), [root, sel]);
+const inks = (p) => p.evaluate((r) => new Function(`return ${r}`)()?.querySelectorAll('.pin.ink').length || 0, root);
+// One more drawing on the page than there were (it is sent by itself, a second after the last stroke).
+const sent = (p, was, ms = 5000) => p.waitForFunction(([r, k]) => (new Function(`return ${r}`)()?.querySelectorAll('.pin.ink').length || 0) > k, [root, was], { timeout: ms }).catch(() => {});
 const until = (p, sel, ms = 4000) => p.waitForFunction(([r, s]) => Boolean(new Function(`return ${r}`)()?.querySelector(s)), [root, sel], { timeout: ms }).catch(() => {});
 // The middle and edges of an element, in window pixels.
 const box = (p, id) => p.evaluate((i) => { const r = document.getElementById(i).getBoundingClientRect(); return { l: r.left, t: r.top, r: r.right, b: r.bottom, cx: (r.left + r.right) / 2, cy: (r.top + r.bottom) / 2 }; }, id);
@@ -42,18 +45,17 @@ const stroke = async (p, pts) => {
   for (const q of pts.slice(1)) await p.mouse.move(...q, { steps: 6 });
   await p.mouse.up();
 };
-// Hold D, draw the strokes, let D go: the new comment's box opens. Send it and read what the agent gets.
+// Hold D, draw the strokes, let D go: the drawing is sent as it is, no box (Leo, 21 Nov: "just draw maybe and send dont
+// open comment to send it, just send"). Read what the agent gets.
 const draw = async (p, page, strokes) => {
+  const was = await inks(p);
   await p.keyboard.down('d');
   for (const s of strokes) await stroke(p, s);
   await p.keyboard.up('d');
-  await until(p, '.float textarea');
+  await sent(p, was);
   const open = await has(p, '.float textarea');
   const lines = await has(p, 'svg.ink path');
   const draftPin = await has(p, '.pin.draft');
-  await p.keyboard.type('look here');
-  await p.keyboard.press('Enter');
-  await until(p, '.pin.ink');
   const text = await (await fetch(`${B}/_lab/agent/${page}`)).text();
   return { open, lines, draftPin, text };
 };
@@ -74,7 +76,7 @@ try {
       await go('circle');
       const h = await box(p, 'h');
       const circle = await draw(p, 'circle', [ring(h.cx, h.cy, (h.r - h.l) / 2 + 30, 40)].map((s) => s.map(([x, y]) => [Math.max(4, x), y])));
-      check(eng, 'D held + a drag draws: the new comment box opens with the lines, no draft pin', circle.open && circle.lines && !circle.draftPin, JSON.stringify(circle).slice(0, 200));
+      check(eng, 'D held + a drag draws: sent as it is, no comment box, its lines, no draft pin', !circle.open && circle.lines && !circle.draftPin, JSON.stringify(circle).slice(0, 200));
       check(eng, 'a loop reads as circled, with the words inside it', /type: drawing/.test(circle.text) && /drawn: circled/.test(circle.text) && /Pricing/.test(circle.text) && /lines \(px from the area's top left\): M\d/.test(circle.text), circle.text.split('\n').filter((l) => /drawn|type|text in|lines/.test(l)).join(' | '));
       check(eng, 'the drawing is the pin: its lines, no marker face', await p.evaluate((r) => { const pin = new Function(`return ${r}`)().querySelector('.pin.ink'); return Boolean(pin?.querySelector('path.hit')) && getComputedStyle(pin).backgroundColor === 'rgba(0, 0, 0, 0)'; }, root));
       // Clicking the line opens it (once the sent pin's undo card has gone: Esc lets it go).
@@ -154,14 +156,13 @@ try {
       // Shift held with D: a line drawn about straight comes out straight, snapped flat (Leo's pick S1, 20 Nov).
       await go('scribble');
       const sh = await box(p, 'b');
+      let wasInk = await inks(p);
       await p.keyboard.down('d');
       await p.keyboard.down('Shift'); // held only for the stroke: Shift+Enter would be a new line, not send
       await stroke(p, Array.from({ length: 9 }, (_, i) => [sh.l + 10 + i * 30, sh.b + 4 + (i % 2 ? 3 : -2) + i * 1.2]));
       await p.keyboard.up('Shift');
       await p.keyboard.up('d');
-      await until(p, '.float textarea');
-      await p.keyboard.press('Enter');
-      await until(p, '.pin.ink');
+      await sent(p, wasInk);
       await p.waitForTimeout(300);
       const flatText = await (await fetch(`${B}/_lab/agent/scribble`)).text();
       const kept = [...flatText.matchAll(/^lines \(px[^:]*: (.*)$/gm)].at(-1)?.[1] || ''; // the newest drawing on the page
@@ -172,14 +173,13 @@ try {
       // lines don't sit where the plain drag below starts.
       await go('caret');
       const bx = await box(p, 'b');
+      wasInk = await inks(p);
       await p.keyboard.down('d');
       await p.keyboard.down('Shift');
       await stroke(p, [[bx.l - 8, bx.t - 6], [bx.l + 90, bx.t - 2], [bx.l + 200, bx.t - 9], [bx.l + 204, bx.b + 4], [bx.l + 100, bx.b + 9], [bx.l - 6, bx.b + 5], [bx.l - 9, bx.t - 1]]);
       await p.keyboard.up('Shift');
       await p.keyboard.up('d');
-      await until(p, '.float textarea');
-      await p.keyboard.press('Enter');
-      await until(p, '.pin.ink');
+      await sent(p, wasInk);
       await p.waitForTimeout(300);
       const boxText = await (await fetch(`${B}/_lab/agent/caret`)).text();
       const boxLine = [...boxText.matchAll(/^lines \(px[^:]*: (.*)$/gm)].at(-1)?.[1] || '';

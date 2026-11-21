@@ -109,7 +109,6 @@ button.pin.done { color: var(--_green-fg); }
 .pin:is(.resolved, .moved) { opacity: .5; } /* a done pin is as big as an open one, only faded (Leo, 18 Nov) */
 .pin.moved:not(.resolved) { scale: .8; }
 .pin.unsure:not(.resolved) { outline: 1.5px dashed var(--_amber); outline-offset: 2px; } /* a guess: look-alikes, or its words changed */
-.lostmark { position: absolute; width: 28px; height: 28px; margin: -28px 0 0; box-sizing: border-box; border: 1.5px dashed var(--_muted); border-radius: 14px 14px 14px 2px; opacity: .4; scale: .8; transform-origin: 0 100%; pointer-events: none; } /* where a lost pin stood */
 .spotnote { padding: 6px 12px 0; font-size: 12px; letter-spacing: 0; color: var(--_muted); }
 button.pin:is(.resolved, .moved):is(:hover, .open) { opacity: 1; }
 .pin.grab { touch-action: none; }
@@ -216,20 +215,19 @@ button.choice.picked { opacity: 1; }
 .choices .note.idle { visibility: hidden; }
 .choices .note .btn.undo { margin-left: 1px; }
 .card.margin { width: 280px; }
-/* Tied to its pin (thread.ts tieToPin): the browser keeps it there. Where the script puts it, from the pin's
-   corner (--lab-cx / --lab-cy; a box's other place --lab-ux / --lab-uy); above (its bottom at --lab-ay), or in from the
-   screen's right edge, when there is no room. A new comment's box near the right edge goes to its pin's left, or above it
-   held in from the right edge (12 px), so it is never cut off. */
+/* Tied to its pin (thread.ts tieToPin): the browser keeps it there. A thread's card is laid by the script (thread.ts spot:
+   below its pin, above it or beside it, whole in the window) as offsets from the pin, which these rules only start from.
+   A new comment's box: where the script puts it, from the pin's corner (--lab-cx / --lab-cy; its other place --lab-ux /
+   --lab-uy); above (its bottom at --lab-ay), or in from the screen's right edge, when there is no room. Near the right
+   edge it goes to its pin's left, or above it held in from the right edge (12 px), so it is never cut off. */
 @position-try --lab-left { left: auto; right: calc(anchor(left) + 8px); }
-@position-try --lab-above { top: auto; bottom: var(--lab-up); }
-@position-try --lab-edge { left: auto; right: 12px; }
 @position-try --lab-edge-above { left: auto; right: 12px; top: auto; bottom: var(--lab-up); }
 @position-try --lab-under { left: var(--lab-uleft); top: max(8px, calc(anchor(top) + var(--lab-uy))); }
 @position-try --lab-fit { left: var(--lab-uleft); top: 8px; bottom: 8px; height: fit-content; margin-block: auto; } /* neither side has room: in the screen's middle */
 @position-try --lab-under-above { left: var(--lab-uleft); top: auto; bottom: var(--lab-up); }
 .tied-card, .tied-beside { position: fixed !important; top: max(var(--lab-min, 0px), calc(anchor(top) + var(--lab-cy))); /* never above the screen's top */ /* the shared places, written once: */
   --lab-up: calc(anchor(top) - var(--lab-ay)); --lab-uleft: max(12px, calc(anchor(left) + var(--lab-ux))); }
-.tied-card { left: max(12px, calc(anchor(left) + var(--lab-cx))); position-try-fallbacks: --lab-above, --lab-edge, --lab-edge-above; }
+.tied-card { left: max(12px, calc(anchor(left) + var(--lab-cx))); }
 .tied-beside { --lab-min: 8px; margin-block: 0 8px; /* the 8 px under it counts in the browser's check, so it keeps off the bottom edge */ left: calc(anchor(left) + var(--lab-cx)); position-try-fallbacks: --lab-under, --lab-under-above, --lab-fit, --lab-left, --lab-edge-above; /* Chrome tries 5 at most */ }
 .tie { position: absolute; height: 1px; background: var(--_fg); opacity: .3; pointer-events: none; }
 .card.in, .float.in { animation: lab-in var(--_t-base) var(--_ease); }
@@ -277,7 +275,7 @@ button.btn.undo { color: var(--_fg); }
 .box.open { grid-template-areas: "text text" "line line" "who send"; row-gap: 8px; padding: 7px 7px 8px 14px; }
 /* One line of text is exactly as tall as the send button (20 + 2 + 2 = 24), so the text and the button share one middle. */
 .box textarea { grid-area: text; width: 100%; border: 0; background: none; padding: 2px 0; line-height: 20px; margin: 0; resize: none;
-                min-height: 0; max-height: min(200px, max(80px, 30vh)); overflow-y: auto; outline: none; display: block; field-sizing: content; } /* it grows with its words, no script */
+                min-height: 0; max-height: min(200px, max(80px, 30vh)); overflow-x: hidden; overflow-y: auto; outline: none; display: block; field-sizing: content; } /* it grows with its words, no script */
 .box textarea::placeholder, .who input::placeholder { color: var(--_muted); opacity: 1; }
 .box textarea::placeholder { white-space: nowrap; text-overflow: ellipsis; } /* one line, cut with … on a box too narrow: a wrapped second line was half hidden */
 .line { grid-area: line; height: 0; border-top: var(--_hair); margin: 0 -7px 0 -14px; display: none; }
@@ -400,7 +398,7 @@ button.btn.undo { color: var(--_fg); }
        background: var(--_green-fg); color: var(--_bg); box-shadow: 0 0 0 1.5px var(--_bg); font: 700 9.5px/1 system-ui, sans-serif;
        letter-spacing: 0; pointer-events: none; animation: lab-arrive var(--_t-quick) var(--_ease-out); }
 /* one floating pill (lab.css .lab-button is the same) */
-.listener { position: relative; border: 0; border-radius: var(--_radius); padding: 0; width: var(--_pill-h); height: var(--_pill-h); justify-content: center; /* the bar's height, so the two line up */ background: var(--_bg); box-shadow: var(--_shadow);
+.listener { position: relative; border: 0; border-radius: var(--_radius); padding: 0; width: var(--_pill-h); height: var(--_pill-h); justify-content: center; /* the bar's height, so the two line up */ background: none; /* no tile: the mark alone, its shadow keeping it off the page (Leo, 21 Nov: "can it be without maybe just shadow") */
         font: inherit; font-size: 13px; letter-spacing: -.006em; white-space: nowrap;
         display: inline-flex; gap: 6px; align-items: center; color: var(--_fg); text-decoration: none; cursor: default; }
 .listener span { color: var(--_muted); }
@@ -432,7 +430,7 @@ button.btn.undo { color: var(--_fg); }
 /* Phones: the same words head a sheet (the open thread's, the list's). */
 .mark { width: 16px; height: 16px; flex: none; overflow: visible; fill: var(--_accent); }
 .mark .eye, .agentmark .eye { fill: var(--_bg); }
-.listener .mark { fill: var(--_green-fg); }
+.listener .mark { fill: var(--_green-fg); filter: drop-shadow(0 0 .5px color-mix(in srgb, var(--_bg) 80%, transparent)) drop-shadow(0 1px 3px rgba(0,0,0,.28)); }
 .listener .mark > g { fill: inherit; } /* the mark's own paths said currentColor, so its state colours never showed */
 .listener.idle .mark { fill: var(--_muted); } /* away: grey, not black (Leo, 18 Nov) */
 .listener.stale .mark { fill: var(--_amber); } /* reconnecting: amber */
@@ -658,9 +656,11 @@ kbd::before { content: '('; } kbd::after { content: ')'; } /* read as a hint: ch
 .quick button.own:hover { background: color-mix(in srgb, var(--_green) 24%, transparent); }
 .quick.alt button::after { content: attr(data-n); margin-left: 6px; opacity: .55; font-variant-numeric: tabular-nums; } /* ⌥ held: the key for each */
 .float .quick button, .float .box { border-radius: max(0px, calc(var(--_radius) - 8px)); }
+.chatwin .chat .box { border-radius: max(0px, calc(var(--_radius) - 6px)); } /* the chat's box sits 6 px in from the window: outer minus gap */
 @media (pointer: coarse) and (max-width: 560px), (pointer: coarse) and (max-height: 500px) {
   .float > .quick { flex: none; gap: 8px; margin: 0; padding: 2px 12px 10px; }
   .float > .quick button { min-height: 36px; padding: 0 12px; font-size: 14px; letter-spacing: -.011em; }
+  .chatwin .chat .box { border-radius: max(0px, calc(var(--_card-r) - 12px)); } /* 12 px in on a phone sheet */
   .float > .composer .box { border-radius: max(0px, calc(var(--_card-r) - 12px)); } /* the sheet's corners (--_card-r), the box 12 px in */
   /* The action buttons keep the computer's corner (Leo, 19 Nov: from the sheet's they read as pills on a phone). */
   .float > .quick button { border-radius: max(0px, calc(var(--_radius) - 8px)); }

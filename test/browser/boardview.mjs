@@ -5,7 +5,7 @@
 import fs from 'node:fs';
 import path from 'node:path';
 import { claimPort } from './port.mjs';
-import { playwright, engines, tmp, labEnv, startLab, labUp, sleep, check, finish } from './harness.mjs';
+import { playwright, engines, tmp, labEnv, startLab, labUp, sleep, check, finish, withAlt } from './harness.mjs';
 
 const pw = playwright();
 
@@ -48,7 +48,7 @@ try {
       check(eng, 'the link opens the board over the same page, one widget', st.path === '/canvas' && st.hash === '#board=pricing' && st.view && st.pills === 1, JSON.stringify(st));
       // a tap on frame b pins
       const b = await p.evaluate(() => { const r = document.querySelector('[data-lab-board-view]')?.shadowRoot?.querySelector('#lab-board .f[data-id="b"]').getBoundingClientRect(); return { x: r.x, y: r.y, w: r.width }; });
-      await p.mouse.click(b.x + 60, b.y + 80);
+      await withAlt(p, () => p.mouse.click(b.x + 60, b.y + 80));
       await sleep(400);
       await p.keyboard.type('frame b note');
       await p.keyboard.press('Enter');
@@ -59,10 +59,16 @@ try {
       // resize: half, kept for this page across a reload
       await p.keyboard.press('Escape'); // the draft (if any) goes first
       await sleep(200);
+      const viewH = () => p.evaluate(() => document.querySelector('[data-lab-board-view]').getBoundingClientRect().height);
+      const h0 = await viewH();
+      check(eng, 'a board opens at half the window (Leo, 21 Nov: "open boards half not full by default")', Math.abs(h0 - 400) < 4, String(h0));
       await p.click('[data-lab-board-view] .bv-size');
       await sleep(400);
-      const h1 = await p.evaluate(() => document.querySelector('[data-lab-board-view]').getBoundingClientRect().height);
-      check(eng, 'full / half makes the view half the window', Math.abs(h1 - 400) < 4, String(h1));
+      const hFull = await viewH();
+      await p.click('[data-lab-board-view] .bv-size');
+      await sleep(400);
+      const h1 = await viewH();
+      check(eng, 'full / half makes the view the whole window, then half of it', Math.abs(hFull - 800) < 4 && Math.abs(h1 - 400) < 4, String([hFull, h1]));
       // the grip on its edge: dragged up to 70%
       const g = await p.evaluate(() => { const r = document.querySelector('[data-lab-board-view]')?.shadowRoot?.querySelector('.bv-grip').getBoundingClientRect(); return { x: r.x + r.width / 3, y: r.y + r.height / 2 }; });
       await p.mouse.move(g.x, g.y);
@@ -91,13 +97,17 @@ try {
       await p.waitForFunction(() => document.querySelector('[data-lab-board-view]')?.shadowRoot?.querySelector('#lab-board'), null, { timeout: 6000 });
       await sleep(500);
       await p.mouse.wheel(0, 600); // over the board: pans it, never the page
-      await sleep(200);
+      await sleep(400);
+      const camLeft = await p.evaluate(() => window.__labBoard.camera());
       await p.keyboard.press('Escape');
       await sleep(500);
       const after = await p.evaluate(() => ({ y: scrollY, view: Boolean(document.querySelector('[data-lab-board-view]')), hash: location.hash }));
       check(eng, 'Esc closes it and the page is where it was scrolled', !after.view && !after.hash && Math.abs(after.y - y2) < 2 && p.url() === url0, JSON.stringify({ ...after, y2, y1, y0 }));
       await p.click('#go');
       await p.waitForFunction(() => document.querySelector('[data-lab-board-view]')?.shadowRoot?.querySelector('#lab-board'), null, { timeout: 6000 });
+      await sleep(600);
+      const camBack = await p.evaluate(() => window.__labBoard.camera());
+      check(eng, 'opened again, the board is at the zoom and place it was left at (Leo, 21 Nov: "closing/opening board drawer should not move zoom/position inside board")', Math.abs(camBack.z - camLeft.z) < 1e-3 && Math.abs(camBack.x - camLeft.x) < 1.5 && Math.abs(camBack.y - camLeft.y) < 1.5, JSON.stringify([camLeft, camBack]));
       await p.goBack();
       await sleep(500);
       const back = await p.evaluate(() => ({ y: scrollY, view: Boolean(document.querySelector('[data-lab-board-view]')), path: location.pathname }));

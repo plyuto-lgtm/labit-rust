@@ -39,7 +39,7 @@ import { holdWhileOpen } from './widget/hold.ts';
 import { inkSvg } from './widget/ink.ts';
 import { bindActions } from './widget/actions.ts';
 import { bindDrag, draftHasText, endDrag, inkSaid, offerSelection, startDrag } from './widget/drag.ts';
-import { bindBoardCam, pinBoard, showBoard } from './widget/boardcam.ts';
+import { addBoard, bindBoardCam, showBoard } from './widget/boardcam.ts';
 import { bindFramework, overFramework, scanForFramework } from './widget/framework.ts';
 import { bindKeys } from './widget/keys.ts';
 
@@ -82,6 +82,7 @@ import { bindKeys } from './widget/keys.ts';
     get agentOf() { return agentOf; },
     get anchorAt() { return anchorAt; },
     get begin() { return begin; },
+    get sendDrawing() { return sendDrawing; },
     get addComment() { return addComment; },
     get bar() { return bar; },
     get chatBtn() { return chatBtn; },
@@ -173,7 +174,6 @@ import { bindKeys } from './widget/keys.ts';
   } catch {}
   // Your one list of actions (settings.json `actions`, passed as data-actions; lib/actions.ts, docs/settings.md): as many
   // chips as fit, the rest behind "…".
-  const BOARD_ACT = '+board: use the references on this pin\'s board ("board for this pin" under it)';
   const actButton = (name) => el('button', { type: 'button', 'data-k': name }, name);
   let LIST = [];
   try {
@@ -547,6 +547,48 @@ import { bindKeys } from './widget/keys.ts';
     keepSpot(anchor);
     ptr.classList.add('still'); // the new pin is where the drawn pointer is: it goes at once (it faded over the pin), back with the next move
     render();
+  }
+  // A new comment the lab saved: on the page, its box closed, undo for a moment (takeBack).
+  function posted(comment, edit, said, anchor) {
+    if (edit) store.set(`lab-edit:${comment.id}`, edit); // lets this browser drag the pin later
+    addComment(comment);
+    markSeen([comment]);
+    S.draft = null;
+    keepSpot(null);
+    S.openId = null; // once posted, the card closes and the new pin stays (click it to open)
+    // Undo for 3 s (takeBack): the card is closed at once (Leo, 20 Nov: "autoclose modal if its first comment"), with
+    // no strip above the bar (Leo, 20 Nov: "no need this pill"); opening the pin meanwhile puts undo in its card
+    // (thread.ts), and Command-Z takes it back too, on a computer.
+    // A tapped action (go, fix, remove…) closes at once with no undo (Leo, 20 Nov: "if action close it right away").
+    if ((S.isAdmin || edit) && !anchor.act) {
+      const u = { id: comment.id, until: Date.now() + UNDO_MS, text: said, anchor, touched: false };
+      S.undo = u;
+      setTimeout(() => {
+        if (S.undo !== u) return;
+        S.undo = null;
+        if (u.touched || S.openId !== u.id) return;
+        S.closeFast = true;
+        S.openId = null;
+        render();
+      }, UNDO_MS);
+    }
+    S.posted = comment.id;
+    holdKeyboard(); // the keyboard waits until the card has gone (sheets.ts)
+    render();
+  }
+  // A drawing goes as it is, with what it reads as, the moment it is done: no box to send it from (Leo, 21 Nov: "just
+  // draw maybe and send dont open comment to send it, just send"). Undo stays (⌘Z, or the pin's card). With no name
+  // given yet, or the lab refusing it, its box opens instead.
+  async function sendDrawing(anchor) {
+    const name = store.get('lab-name');
+    if (!name) return begin(anchor);
+    const said = inkSaid(anchor.ink.mark);
+    try {
+      const { comment, edit } = await send({ name, text: said, anchor });
+      posted(comment, edit, said, anchor);
+    } catch {
+      begin(anchor);
+    }
   }
   // Sent once the lab answers: while it can't be reached (restarting, the laptop just woke), the message waits and is
   // tried again every 2 s for up to 5 minutes, instead of failing. Only a lab that answers with an error fails it.
@@ -1013,7 +1055,7 @@ import { bindKeys } from './widget/keys.ts';
       if (isPage(c)) return; // in the chat, not on the page
       // Done pins with nothing new in them step aside when done ones are hidden (D); an open one stays.
       if (!S.showDone && S.openId !== c.id && (c.resolved || workState(c)[0] === 'done') && !unread(c).length) return;
-      const { left, top, moved, zone, clipped, covered, from, why } = places.get(c.id) || position(c.anchor || {});
+      const { left, top, moved, zone, clipped, covered, why } = places.get(c.id) || position(c.anchor || {});
       // A pin whose spot is gone is off the page: the ⋯ menu lists them ("moved · N"); an open one shows, to drop on a
       // new spot (drag) or close. The agent finishing one closes it.
       if (moved) {
@@ -1021,7 +1063,6 @@ import { bindKeys } from './widget/keys.ts';
           autoShut.add(c.id);
           send({ action: 'resolve', id: c.id, edit: store.get(`lab-edit:${c.id}`) || undefined }).then(({ comment }) => (Object.assign(c, comment), render()), () => {});
         }
-        if (!c.resolved) add(el('i', { class: 'lostmark', 'aria-hidden': 'true', style: `left:${from}px;top:${top}px` })); // where it stood: faint, no target
         if (S.openId !== c.id) return;
       }
       const ink = zone && c.anchor.ink; // a drawing is its own pin: its lines, no marker (draw.ts)
@@ -1229,32 +1270,7 @@ import { bindKeys } from './widget/keys.ts';
         attach: true,
         onSubmit: async (name, said, att) => {
           const { comment, edit } = await send({ name, text: said, anchor, ...att });
-          if (edit) store.set(`lab-edit:${comment.id}`, edit); // lets this browser drag the pin later
-          if (anchor.act === BOARD_ACT) void pinBoard(comment.id, true, anchor);
-          addComment(comment);
-          markSeen([comment]);
-          S.draft = null;
-          keepSpot(null);
-          S.openId = null; // once posted, the card closes and the new pin stays (click it to open)
-          // Undo for 3 s (takeBack): the card is closed at once (Leo, 20 Nov: "autoclose modal if its first comment"), with
-          // no strip above the bar (Leo, 20 Nov: "no need this pill"); opening the pin meanwhile puts undo in its card
-          // (thread.ts), and Command-Z takes it back too, on a computer.
-          // A tapped action (go, fix, remove…) closes at once with no undo (Leo, 20 Nov: "if action close it right away").
-          if ((S.isAdmin || edit) && !anchor.act) {
-            const u = { id: comment.id, until: Date.now() + UNDO_MS, text: said, anchor, touched: false };
-            S.undo = u;
-            setTimeout(() => {
-              if (S.undo !== u) return;
-              S.undo = null;
-              if (u.touched || S.openId !== u.id) return;
-              S.closeFast = true;
-              S.openId = null;
-              render();
-            }, UNDO_MS);
-          }
-          S.posted = comment.id;
-          holdKeyboard(); // the keyboard waits until the card has gone (sheets.ts)
-          render();
+          posted(comment, edit, said, anchor);
         },
       });
       float.append(el('div', { class: 'handle' }));
@@ -1694,10 +1710,22 @@ import { bindKeys } from './widget/keys.ts';
     // list itself is set in labit.json or your settings.json (`actions`, docs/settings.md): nothing on the page edits it.
     const chips = LIST.map(chip);
     row.append(...chips);
-    // +board (on a page; a guest too, who is the person on another device): the pin goes with its own board, which opens
-    // for pictures and pages; the lab gives the pin to the agent when that board is closed (Leo, 21 Nov: "+board?"). It is
-    // labit's own, not one of your list, so it looks different and sits at the right end, never dropped for room.
-    if (!S.board && draft.anchor.kind !== 'board') row.append(Object.assign(chip({ name: '+board', prompt: BOARD_ACT }), { className: 'own' }));
+    // +board (on a page; a guest too, who is the person on another device): a board for pictures and pages goes into the
+    // page as a section at this spot, and opens; no pin is left (Leo, 21 Nov: "only board sections is enough"). The words
+    // typed are its title. It is labit's own, not one of your list, so it looks different and sits at the right end.
+    if (!S.board && draft.anchor.kind !== 'board') {
+      const own = Object.assign(actButton('+board'), { className: 'own', title: 'a board of pictures and pages, as a section of the page here' });
+      own.addEventListener('mousedown', (e) => e.preventDefault());
+      own.addEventListener('click', () => {
+        const title = field.value.trim();
+        fill('');
+        S.draft = null;
+        keepSpot(null);
+        render();
+        void addBoard(draft.anchor, title);
+      });
+      row.append(own);
+    }
     let tries = 0;
     const measure = () => {
       if (!row.isConnected || !row.clientWidth) return void (tries++ < 10 && requestAnimationFrame(measure));
@@ -1942,7 +1970,14 @@ import { bindKeys } from './widget/keys.ts';
     ptr.classList.toggle('show', show);
     ptr.style.transform = `translate(${x - 1}px, ${y - 27}px)`;
   };
-  const recheck = () => S.mouse && requestAnimationFrame(() => S.mouse && place(S.mouse.x, S.mouse.y, document.elementFromPoint(S.mouse.x, S.mouse.y)));
+  // The element under a still mouse, into open shadow roots (a board's view): its host alone inherits the page's hidden
+  // pointer, and the drawn pin showed over a board for a moment after a picture was deleted (Leo, 21 Nov).
+  const under = (x, y) => {
+    let t = document.elementFromPoint(x, y);
+    for (let n; t?.shadowRoot && t !== host && (n = t.shadowRoot.elementFromPoint(x, y)) && n !== t;) t = n;
+    return t;
+  };
+  const recheck = () => S.mouse && requestAnimationFrame(() => S.mouse && place(S.mouse.x, S.mouse.y, under(S.mouse.x, S.mouse.y)));
   addEventListener('pointermove', (e) => {
     if (e.pointerType !== 'mouse') return;
     ptr.classList.remove('still');

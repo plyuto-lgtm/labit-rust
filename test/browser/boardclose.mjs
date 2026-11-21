@@ -7,7 +7,7 @@
 import fs from 'node:fs';
 import path from 'node:path';
 import { claimPort } from './port.mjs';
-import { playwright, engines, tmp, labEnv, startLab, labUp, sleep, check, finish } from './harness.mjs';
+import { playwright, engines, tmp, labEnv, startLab, labUp, sleep, check, finish, withAlt } from './harness.mjs';
 
 const pw = playwright();
 
@@ -26,7 +26,7 @@ try {
     try {
       for (const [where, url] of [['board page', `${B}/_lab/board/pricing?of=%2Fcanvas`], ['board view', `${B}/canvas#board=pricing`]]) {
         const ctx = await browser.newContext({ viewport: { width: 1200, height: 800 } });
-        await ctx.addInitScript(() => { localStorage.setItem('lab-name', 'zz-close'); localStorage.setItem('lab-on', '1'); });
+        await ctx.addInitScript(() => { localStorage.setItem('lab-name', 'zz-close'); localStorage.setItem('lab-on', '1'); localStorage.setItem('lab-board-size:/canvas', '1'); }); // full: the canvas above the frames is the board's
         const p = await ctx.newPage();
         p.on('pageerror', (e) => console.log('pageerror', e.message));
         await p.goto(url);
@@ -42,9 +42,9 @@ try {
         const a = await rect('a');
         const b = await rect('b');
         const empty = { x: b.x + b.w * 0.7, y: a.y - 60 }; // the canvas above frame b, clear of the open card
-        // a pin on frame a (comment mode: a click, words, Enter)
+        // a pin on frame a (an ⌥-click, words, Enter)
         if (!(await look()).pins) {
-          await p.mouse.click(a.x + 40, a.y + a.h / 4);
+          await withAlt(p, () => p.mouse.click(a.x + 40, a.y + a.h / 4));
           await sleep(400);
           await p.keyboard.type('a note');
           await p.keyboard.press('Enter');
@@ -99,8 +99,8 @@ try {
           s = await look();
           check(eng, `${where}, ${m}: a click on the canvas closes the chat, and only that`, c1.chat && !s.chat && !s.draft && s.sel === c1.sel, JSON.stringify([c1, s]));
         }
-        // ----- a new comment's box (comment mode): the next click outside only closes it
-        await p.mouse.click(b.x + b.w / 3, b.y + b.h / 3);
+        // ----- a new comment's box (⌥-click): the next click outside only closes it
+        await withAlt(p, () => p.mouse.click(b.x + b.w / 3, b.y + b.h / 3));
         await sleep(400);
         const d0 = await look();
         await p.mouse.click(empty.x, empty.y);

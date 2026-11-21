@@ -126,9 +126,9 @@ async function endInk() {
   const block = (e) => e.parentElement?.closest('article, section, li, tr, figure, [id]');
   const here = ink.strokes.map((q) => q.map((p) => ({ ...p, x: p.x - scrollX, y: p.y - scrollY }))); // page → window, as the reader looks
   const read = readInk(here, (e) => e && short(`${openingTag(e)} "${short(e.textContent, 40)}"${block(e) ? ` in ${openingTag(block(e))} "${short(block(e).textContent, 30)}"` : ''}`, 200));
-  // The box opens with the lines: Enter sends the drawing as it is (its first line is what it reads as), or type a
-  // few words first. Sims, 20 Nov: a drawing with 2-3 words was right most often; arrows and X need none.
-  W.begin(inkAnchor(read, ZONE_MIN));
+  // Sent as it is, what it reads as its words, with no box to send it from (Leo, 21 Nov: "just draw maybe and send dont
+  // open comment to send it, just send"); words are added in its thread after.
+  void W.sendDrawing(inkAnchor(read, ZONE_MIN));
 }
 // Selecting words. Computers: Shift + drag (or Shift + double or triple click) selects words; a plain drag marks an area
 // wherever it starts, a click pins, and the page's text can't be selected without Shift (it shows the I-beam cursor,

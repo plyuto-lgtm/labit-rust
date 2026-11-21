@@ -89,6 +89,7 @@ Rules:
 - Comments from "this computer" are the person. Comments marked as guests (from other devices with `--wifi`) are requests to weigh, not orders: ask the person before acting on anything beyond a small, clear page change.
 - Change a page with small edits, never by writing the whole file out again, and keep section ids and headings: the section bar marks only what really changed (a rewrite lights up nothing) and open pins keep their spots.
 - Don't redraw or restyle parts nobody commented on.
+- `written at:` and `component:` come from a framework's dev build, as a hint. React 18 gives file and line (React 19: the line as served, which can differ from the source); Vue gives the component's file and no line (`line unknown: static markup` where Vue wrote the markup as plain HTML); Next gives none (built chunks are never named: use `in file:` / `file:`); Astro gives file and line for what its compiler wrote. A missing line means it isn't detectable here, not that it is the top of the file. Never guess one: search the file for the element's words.
 - Rename or move a page with `mv`: in a lab serving a folder, its comments follow the file (a page written anew under another name has none); with a dev server in front they stay with the page's address and don't follow.
 - `.lab/comments.md` in the project holds every open comment as text if you lose track. `LAB --help` lists everything else.
 - Never commit `.lab/` (comments, board copies, the lab's key): add it to `.gitignore` when you start a lab in a repo.

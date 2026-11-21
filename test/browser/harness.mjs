@@ -27,6 +27,9 @@ export function playwright({ ciFails = false } = {}) {
 /** The engines to run, from ENGINES (comma separated). */
 export const engines = (fallback = 'webkit,chromium') => (process.env.ENGINES || fallback).split(',');
 
+// ⌥ held for fn: on a board a click (or a drag) comments only with ⌥ (Leo, 21 Nov: "regular cursor to operate on boards opt
+// to call comment").
+export const withAlt = async (p, fn) => { await p.keyboard.down('Alt'); try { return await fn(); } finally { await p.keyboard.up('Alt'); } };
 export const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
 
 /** A new temp folder whose name starts with `prefix`. */

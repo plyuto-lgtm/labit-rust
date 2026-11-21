@@ -45,7 +45,6 @@
     "item": "a message in a thread card; thread.ts looks the messages up",
     "under": "a card set under its words (trial.ts); comments.js asks whether a card is one when it ties it to its pin",
     "cur": "the labs & pages row you are on (switcher.ts): arrow keys start from it",
-    "bv-size": "the board view's size button; the board browser tests click it",
     "bv-close": "the board view's close button; the board browser tests click it"
   },
   "animations": [

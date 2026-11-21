@@ -792,20 +792,19 @@ const agentText = async (page) => {
   const local = text.replaceAll(`${ROOT}/`, '').replace(/^to answer: POST .*$/m, `to answer: ${CMD} reply <id> "what you did" [--resolve], run in ${ROOT}`).replace(/^settle: pin /gm, `settle: ${CMD} pin `);
   const file = fileFor(page);
   const lines = [file && `file: ${file}`, missingFor(page), errorsFor(page)].filter(Boolean);
-  const out = pinBoards(page, sourceLines(lines.length ? local.replace(/^(page: .*)$/m, `$1\n${lines.join('\n')}`) : local, ROOT)); // a framework's `written at:` line is checked against its file now
+  const out = sourceLines(lines.length ? local.replace(/^(page: .*)$/m, `$1\n${lines.join('\n')}`) : local, ROOT) + pageBoards(page); // a framework's `written at:` line is checked against its file now
   return boardText(page, file ? lineHints(out, file) : out);
 };
-// A pin's own board (made from its card, src/widget/thread.ts): board pin-<id>, about its page at #pin-<id>. What is on
-// it is said under the pin's words, so the agent gets the person's references with the pin, not only with a pin on a
-// frame. The page itself (its first frame) and archived frames are left out; a board with nothing else says nothing.
-const pinBoards = (page, text) => text.replace(/^## \d+\. [^\n]* · id ([0-9a-f]{12})\ncomment: [^\n]*(?:\n {2}\|[^\n]*)*$/gm, (all, id) => {
-  const b = boardGet(`pin-${id}`);
-  if (!b || boardHome(b) !== page || b.of.split('#')[1] !== `pin-${id}`) return all;
-  const shown = b.frames.filter((f) => f.state !== 'archived' && f.src.split(/[?#]/)[0] !== page);
-  if (!shown.length) return all;
-  const what = (f) => (f.file ? `picture .lab/boards/${b.name}/${f.file}` : f.src.startsWith('/_lab/') ? `.lab/boards/${b.name}/${f.id}.html` : `page ${f.src}`);
-  return `${all}\nboard for this pin: ${origin}${page}#board=${b.name} (the person's references for this pin; open the files)\n${shown.map((f) => `  frame ${f.id}: ${what(f)}${f.label ? ` "${f.label}"` : ''}`).join('\n')}`;
-});
+// The boards put into this page as sections (+board, src/widget/boardcam.ts: <lab-board name="pin-<id>"> in its file):
+// what the person put on each, so an agent working on the page has their references. The page itself (its first frame)
+// and archived frames are left out; a board with nothing else says nothing.
+const pageBoards = (page) => B.names(ROOT).flatMap((name) => {
+  const b = name.startsWith('pin-') && boardGet(name);
+  const shown = b && boardHome(b) === page ? b.frames.filter((f) => f.state !== 'archived' && f.src.split(/[?#]/)[0] !== page) : [];
+  if (!shown.length) return [];
+  const what = (f) => (f.file ? `picture .lab/boards/${name}/${f.file}` : f.src.startsWith('/_lab/') ? `.lab/boards/${name}/${f.id}.html` : `page ${f.src}`);
+  return [`\nboard in the page${b.title ? ` "${b.title}"` : ''}: <lab-board name="${name}"> (the person's references; open the files)\n${shown.map((f) => `  frame ${f.id}: ${what(f)}${f.label ? ` "${f.label}"` : ''}`).join('\n')}`];
+}).join('');
 // A plain HTML page: each comment's element is found in the file by its words, and its line said next to it
 // (`in file: pricing.html:30`), so an agent opens the file there instead of searching (sims, 20 Nov: a drawing's
 // action took 4-5 tool calls, most of them looking for the spot).
@@ -1811,11 +1810,7 @@ const rulesOnce = () => {
 // (handoff[id][1]), so a reply goes in the short thread form only to the session that already has its thread.
 const whoOf = (s) => s?.id || s?.name || '';
 // What people wrote that no wait has been handed yet.
-// A pin sent with +board (its board opens as it goes, src/comments.js) waits until the person closes that board (or 20
-// minutes), so the agent gets it with what was put on it, not before.
-const filled = new Set(); // ids of +board pins whose board was closed
-const filling = (c) => !c.parent && /^\+board\b/.test(c.anchor?.act || '') && !filled.has(c.id) && Date.now() - Date.parse(c.createdAt) < 1200000;
-const freshIn = (scope) => scope.flatMap((page) => commentsOf(page).filter((c) => !c.session && !(c.resolved && !c.parent) && !filling(c) && stamp(c) > (handoff[c.id]?.[0] || seen)).map((c) => ({ page, c })));
+const freshIn = (scope) => scope.flatMap((page) => commentsOf(page).filter((c) => !c.session && !(c.resolved && !c.parent) && stamp(c) > (handoff[c.id]?.[0] || seen)).map((c) => ({ page, c })));
 async function unseen(scope = pages(), who = '') {
   const fresh = freshIn(scope);
   // A safety net: threads handed over more than 3 minutes ago that still have no answer after the person's last
@@ -2372,12 +2367,6 @@ const boardApi = async (req, res, url) => {
       if (out === null) return json(422, { error: `the pinned element isn't in ${file} as the page has it` });
       if (out !== src) fs.writeFileSync(full, out);
       return json(200, { ok: true, file });
-    }
-    // A pin's board closed (its +board pin goes to the agent now, with what is on it).
-    if (b.action === 'ready') {
-      if (pinOf) filled.add(pinOf);
-      wake();
-      return json(200, { ok: true });
     }
     const env = { root: ROOT, origin, proxied: Boolean(PROXY), open: (key) => commentsOf(key).filter((c) => !c.parent && !c.resolved).length, titleOf: (p) => { const f = fileFor(boardPage(p)); return f ? titleOf(path.join(ROOT, f)) : ''; }, fileOf: (p) => fileFor(boardPage(p)) };
     const out = act.act(String(b.action), b, env);

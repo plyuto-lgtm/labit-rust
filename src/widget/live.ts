@@ -3,6 +3,7 @@ import { pillLine } from './list.ts';
 
 import { aroundMorph } from './trial.ts';
 import { cut } from './anchoring.ts';
+import { sessionLine } from '../../lib/status.mjs';
 
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
 let W: any;
@@ -301,7 +302,7 @@ export function startLive() {
         head = away[0].toUpperCase() + away.slice(1);
         lines.push(`Tell an agent: listen for pins on ${location.origin}${W.S.page}`);
       }
-      if (name) lines.push(`Session ${name}`);
+      if (name) lines.push(sessionLine(name));
       show(head, n, lines, mode === 'away' ? how : resume || '');
       whoLabel(said());
     };

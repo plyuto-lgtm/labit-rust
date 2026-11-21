@@ -14,7 +14,7 @@ try {
     const draw = async (page, strokes, steps) => {
       await go(p, L.B, page);
       const made = await drawn(p, typeof strokes === 'function' ? await strokes() : strokes, steps);
-      if (made.box) await send(p);
+      if (made.sent) await send(p);
       const text = await L.agent(page);
       const c = (await L.comments(page)).find((x) => x.anchor?.ink);
       return { made, text, a: c?.anchor, n: (text.match(/^## /gm) || []).length };
@@ -22,7 +22,7 @@ try {
 
     // 1. A dot: the pen pressed and wobbled a few px on a word.
     const dot = await draw('dot', async () => { const w = await letters(p, 'a', 0, 5); return [[[w.l + 20, w.mid], [w.l + 26, w.mid + 5], [w.l + 30, w.mid - 4], [w.l + 22, w.mid + 2]]]; });
-    check(eng, 'a dot (a wobble of a few px) opens a box and is sent as a drawing of at least 12×12 px, its lines with it', dot.made.box && /type: drawing, (\d+)×(\d+) px/.test(dot.text) && dot.a?.docW >= 12 && dot.a?.docH >= 12 && dot.a?.ink?.pts?.[0]?.length >= 4, said(dot.text));
+    check(eng, 'a dot (a wobble of a few px) is sent as a drawing of at least 12×12 px, its lines with it', dot.made.sent && /type: drawing, (\d+)×(\d+) px/.test(dot.text) && dot.a?.docW >= 12 && dot.a?.docH >= 12 && dot.a?.ink?.pts?.[0]?.length >= 4, said(dot.text));
     check(eng, 'a dot is not read as an arrow (nothing is pointed from or to); its word is in the area', !/drawn: arrow/.test(dot.text) && /text in area: "Plans"/.test(dot.text), mark(dot.text));
 
     // 2. D held and a plain click (the pointer never moved 8 px): one thing happens, not two.

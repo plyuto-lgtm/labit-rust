@@ -139,7 +139,7 @@ try {
         backs.push([how, label, new URL(p.url()).pathname]);
       }
       check(eng, 'a board page that names its page (?of=) goes back to it: "‹ back", ⇧B, Esc on an empty board', backs.every(([, label, at]) => label === '‹ back' && at === '/checkout'), JSON.stringify(backs));
-      // ----- the pointer: the page's pin where a click would pin (between the frames and on them), the hand with Space, the label's own
+      // ----- the pointer: the plain one on a board, the page's pin with ⌥ held (between the frames and on them), the hand with Space, the label's own
       await p.goto(B + '/pricing');
       await sleep(2500);
       const curAt = async (x, y) => { await p.mouse.move(x - 3, y - 3); await p.mouse.move(x, y); await sleep(120); return p.evaluate(([x, y]) => { let e = document.elementFromPoint(x, y); for (let i = 0; i < 3 && e?.shadowRoot && e.matches('[data-lab-board-view]'); i++) e = e.shadowRoot.elementFromPoint(x, y) || e; return { cursor: getComputedStyle(e).cursor, cls: e.className || e.id }; }, [x, y]); };
@@ -150,10 +150,18 @@ try {
       const gap = await curAt((f0.x + f0.w + f1.x) / 2, f0.y + f0.h / 2);
       const empty = await curAt(600, 760);
       const onFrame = await curAt(f0.x + f0.w / 2, f0.y + f0.h / 2);
+      const drawn = () => p.evaluate(() => [...document.querySelectorAll('*')].map((n) => n.shadowRoot?.querySelector('.ptr')).find(Boolean)?.classList.contains('show'));
       check(eng, 'a page in comment mode hides the system pointer (the drawn pin shows)', onPage.cursor === 'none', JSON.stringify(onPage));
-      check(eng, 'a board: the same pin pointer between the frames, on the empty canvas and on a frame (no extra arrow)', gap.cursor === onPage.cursor && empty.cursor === onPage.cursor && onFrame.cursor === onPage.cursor, JSON.stringify([gap, empty, onFrame]));
-      const showing = await p.evaluate(() => [...document.querySelectorAll('*')].map((n) => n.shadowRoot?.querySelector('.ptr')).find(Boolean)?.classList.contains('show'));
-      check(eng, 'the drawn pin shows on the board', showing === true);
+      // Leo, 21 Nov: "regular cursor to operate on boards opt to call comment".
+      check(eng, 'a board: the plain pointer between the frames, on the empty canvas and on a frame', [gap, empty, onFrame].every((c) => c.cursor === 'default'), JSON.stringify([gap, empty, onFrame]));
+      check(eng, 'no drawn pin on the board without ⌥', (await drawn()) !== true);
+      await p.keyboard.down('Alt');
+      const altGap = await curAt((f0.x + f0.w + f1.x) / 2, f0.y + f0.h / 2);
+      const altEmpty = await curAt(600, 760);
+      const altFrame = await curAt(f0.x + f0.w / 2, f0.y + f0.h / 2);
+      check(eng, '⌥ held: the page\'s pin pointer between the frames, on the empty canvas and on a frame', [altGap, altEmpty, altFrame].every((c) => c.cursor === onPage.cursor), JSON.stringify([altGap, altEmpty, altFrame]));
+      check(eng, '⌥ held: the drawn pin shows on the board', (await drawn()) === true);
+      await p.keyboard.up('Alt');
       const label = await curAt(f0.x + 10, f0.y - 8);
       check(eng, 'the frame label is plain text: no hand', label.cursor !== 'pointer', JSON.stringify(label));
       await p.mouse.move(600, 760);
@@ -164,7 +172,7 @@ try {
       await p.keyboard.up('Space');
       await sleep(200);
       const released = await curAt(600, 760);
-      check(eng, 'Space held: the hand over the canvas and the frames; let go: the pin again', space.cursor === 'grab' && spaceFrame.cursor === 'grab' && released.cursor === onPage.cursor, JSON.stringify([space, spaceFrame, released]));
+      check(eng, 'Space held: the hand over the canvas and the frames; let go: the plain pointer again', space.cursor === 'grab' && spaceFrame.cursor === 'grab' && released.cursor === 'default', JSON.stringify([space, spaceFrame, released]));
       await ctx.close();
       // ----- a phone: first view is every frame at a phone's width, side by side, live; no page zoom
       const ph = await browser.newContext({ viewport: { width: 390, height: 844 }, hasTouch: true, isMobile: true, deviceScaleFactor: 2 });

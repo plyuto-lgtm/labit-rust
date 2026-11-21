@@ -13,25 +13,22 @@ let S: any; // the widget's state (W.S), read once at startup
 export const showBoard = (name: string, of = '', push = true) =>
   W.part('boardview').then((m) => (W.host.setAttribute('data-board', ''), m.show(name, { page: S.page, of, push, onClose: () => {
     W.host.removeAttribute('data-board');
-    // A pin's board closed: its +board pin goes to the agent now (the lab held it, local.mjs filling).
-    if (name.startsWith('pin-')) fetch('/_lab/api/board', { method: 'POST', headers: W.headers(), body: JSON.stringify({ action: 'ready', name }) }).catch(() => {});
     sections(name);
     const open = S.comments.find((c) => c.id === S.openId);
     if (open?.anchor?.kind === 'board') S.openId = null;
     if (S.draft?.anchor?.kind === 'board') S.draft = null;
     W.render();
   } })), () => W.say("the board couldn't load"));
-/** A pin's own board, pin-<id>, about the page at #pin-<id>: made first when asked (+board), then opened. Made, it is
- * also put in the page as a section after the element pinned (place, local.mjs): the lab writes <lab-board name> into the
- * page's file, and the board shows there, below, to come back to. */
-export const pinBoard = async (id: string, make = false, anchor?: { kind?: string } | null) => {
-  const name = `pin-${id}`;
-  const post = (b: object) => fetch('/_lab/api/board', { method: 'POST', headers: W.headers(), body: JSON.stringify({ name, of: `${S.page}#${name}`, ...b }) }).catch(() => null);
-  if (make && !(await post({ action: 'new' }))?.ok) return W.say("the board couldn't be made");
-  if (make && !document.querySelector(`lab-board[name="${name}"]`)) {
-    const at = blockOf(anchor && anchor.kind !== 'page' ? (findTarget(anchor) as Element | null) : null);
-    void post({ action: 'place', path: at ? pathOf(at) : [], words: at?.textContent?.replace(/\s+/g, ' ').trim().slice(0, 40) || '' }).then((r) => r && !r.ok && W.say("the board is on the pin: this page's file couldn't take it as a section"));
-  }
+/** +board: a board of references as a section of the page, at the spot picked, and no pin (Leo, 21 Nov: "no need board
+ * pins only board sections is enough"). The lab writes <lab-board name> into the page's file after the element (place,
+ * local.mjs), makes the board (named pin-<id> as before: the lab's own, kept out of the boards list) with the words
+ * typed as its title, and it opens. A page the lab can't write into (a dev server's, not .html) gets nothing. */
+export const addBoard = async (anchor: { kind?: string }, title: string) => {
+  const name = `pin-${[...crypto.getRandomValues(new Uint8Array(6))].map((n) => n.toString(16).padStart(2, '0')).join('')}`;
+  const post = (b: object) => fetch('/_lab/api/board', { method: 'POST', headers: W.headers(), body: JSON.stringify({ name, of: `${S.page}#${name}`, ...b }) }).then((r) => r.ok, () => false);
+  const at = blockOf(anchor.kind !== 'page' ? (findTarget(anchor) as Element | null) : null);
+  if (!(await post({ action: 'place', path: at ? pathOf(at) : [], words: at?.textContent?.replace(/\s+/g, ' ').trim().slice(0, 40) || '' }))) return W.say("a board goes into a page served from its own .html file: this one can't take it");
+  if (!(await post({ action: 'new', topic: title }))) return W.say("the board couldn't be made");
   return showBoard(name);
 };
 // The element a section goes after: the pinned one, or the first of its own that stands in the page as a block: not a
@@ -66,7 +63,7 @@ const pathOf = (n: Element) => {
 };
 // A board as a section of the page (<lab-board name>, put there by +board), drawn by the board's part (src/board/overlay.ts).
 const fillSection = (host: HTMLElement) =>
-  W.part('boardview').then((m) => m.section(host, { page: S.page, about: (name: string) => S.comments.find((c) => `pin-${c.id}` === name)?.text || '' }), () => {});
+  W.part('boardview').then((m) => m.section(host, { page: S.page }), () => {});
 // Drawn again after the board changed (it closed here, or the lab says it changed).
 const sections = (name?: string) => document.querySelectorAll<HTMLElement>(name ? `lab-board[name="${name}"]` : 'lab-board').forEach((n) => void fillSection(n));
 const defineSection = () => {
@@ -168,7 +165,7 @@ export function bindBoardCam(w: unknown) {
     const bn = /^#board=([a-z0-9][a-z0-9_-]*)/i.exec(location.hash)?.[1];
     if (bn) showBoard(bn, '', false);
   }
-  Object.assign(window, { __labBoardWidget: { pinning: () => S.on, holding: () => S.on /* a phone's hold comments in either mode, as on a page */, hold: (x: number, y: number) => { if (S.draft || S.openId) W.closeOrNudge(); else W.begin(anchorAt(x, y)); }, place: (x: number, y: number) => (S.draft || S.openId ? W.closeOrNudge() : W.begin(anchorAt(x, y))), dismiss } });
+  Object.assign(window, { __labBoardWidget: { pinning: () => S.on, drawing: () => S.dKey, holding: () => S.on /* a phone's hold comments in either mode, as on a page */, hold: (x: number, y: number) => { if (S.draft || S.openId) W.closeOrNudge(); else W.begin(anchorAt(x, y)); }, place: (x: number, y: number) => (S.draft || S.openId ? W.closeOrNudge() : W.begin(anchorAt(x, y))), dismiss } });
   addEventListener('lab-board-moved', (e) => {
     const d = (e as CustomEvent).detail;
     if (!S.on) return;

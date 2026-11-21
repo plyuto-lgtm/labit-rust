@@ -21,12 +21,6 @@ const names = new WeakMap<Element, string>(); // an element's anchor name, kept 
 const rules = new Map<HTMLElement, string>(); // a held pin and its rule
 const spots = new Map<HTMLElement, { name: string; node: Element }>(); // a held pin's element and its anchor name
 const boxes = new Map<HTMLElement, string>(); // a card tied to the element its held pin is on, and its rule
-// A card's places, in the page's sheet (tree-scoped names): where the script puts it, above or in from the screen's
-// right edge when there is no room. --lab-cx / --lab-cy / --lab-ay: from the element's corner (thread.ts tieToPin).
-const TRIES =
-  '@position-try --lab-c-above{top:auto;bottom:calc(anchor(top) - var(--lab-ay))}' +
-  '@position-try --lab-c-edge{left:auto;right:12px}' +
-  '@position-try --lab-c-edge-above{left:auto;right:12px;top:auto;bottom:calc(anchor(top) - var(--lab-ay))}';
 let count = 0;
 let dirty = false;
 // What an element is, read once per placing of the pins (newPass): whether a box cuts it off, it sits in the top layer,
@@ -135,8 +129,7 @@ export function holdBox(node: HTMLElement, pin: HTMLElement | null | undefined):
   node.setAttribute('part', part);
   const rule =
     `[data-lab-comments]::part(${part}){position:fixed;position-anchor:--${at.name};` +
-    'left:max(12px,calc(anchor(left, -10000px) + var(--lab-cx)));top:calc(anchor(top, -10000px) + var(--lab-cy));' +
-    'position-try-fallbacks:--lab-c-above,--lab-c-edge,--lab-c-edge-above}';
+    'left:max(12px,calc(anchor(left, -10000px) + var(--lab-cx)));top:calc(anchor(top, -10000px) + var(--lab-cy))}';
   if (boxes.get(node) !== rule) {
     boxes.set(node, rule);
     dirty = true;
@@ -176,5 +169,5 @@ export function flushPins() {
   dirty = false;
   if (!sheet) sheet = Object.assign(document.createElement('style'), { id: 'lab-pinhold' });
   if (!sheet.isConnected) document.head.append(sheet);
-  sheet.textContent = (boxes.size ? TRIES : '') + [...rules.values(), ...boxes.values()].join('');
+  sheet.textContent = [...rules.values(), ...boxes.values()].join('');
 }

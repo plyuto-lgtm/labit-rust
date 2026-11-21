@@ -1,7 +1,8 @@
 // What a pin tells the agent about its spot, and how it finds it again: the widget's own mark is not the page's attribute,
 // an element inside an open web component keeps its pin (found again, not "moved") on an unchanged page, a click while a
 // saved change fades in lands on the element and not on the page, errors after a client-side navigation are listed under
-// their own route, and text cut at a length never leaves half an emoji. Real browsers, a real lab.
+// their own route, text cut at a length never leaves half an emoji, and the source a framework's markers give (React after a
+// hot update, a Next chunk, Vue's static markup) is the right file or none. Real browsers, a real lab.
 // Not part of `npm test`; CI runs it in the `browser` job.
 // Run: node test/browser/pincontext.mjs (needs playwright; NODE_PATH can point at a node_modules that has it).
 import fs from 'node:fs';
@@ -24,6 +25,7 @@ const pages = (n) => {
   page(`shadow${n}`, '<p>A light paragraph</p><x-card></x-card><script>customElements.define("x-card", class extends HTMLElement { connectedCallback() { this.attachShadow({ mode: "open" }).innerHTML = "<h3>Inside heading</h3><p id=\\"in\\" data-t=\\"w1\\">Words inside the web component</p><p data-t=\\"w2\\">Second paragraph inside</p>"; } });</script>');
   // A page that is patched in place under a cross-fade of a second (slower than the widget's own, so a click lands inside it).
   fade(n, 'Below.');
+  fakes(n);
   // An emoji across the place a value (60) and the words (80) are cut.
   // An Astro dev page: the served HTML has data-astro-source-file / -loc on its elements, and the dev toolbar takes them off once
   // the page is up (astro 7.4.13, dev-toolbar/apps/audit/annotations.js), also off an element added later. Its file is in the project.
@@ -37,6 +39,31 @@ const pages = (n) => {
     setTimeout(() => { more.innerHTML = '<p id="late" ${at('5:3')}>First astro paragraph words</p>'; setTimeout(strip, 200); }, 1500);
   </script>`);
   page(`emoji${n}`, `<h1>Emoji</h1><p id="e" data-note="${'a'.repeat(59)}😀 tail">${'x'.repeat(79)}😀 and more words after</p>`);
+};
+// What a framework's dev build leaves on the page's elements, made by hand (the real dev servers are the torture test's):
+// React's fibers, the node's own the stale one after a hot update (its alternate has the fresh source, in the tree on screen,
+// and its parent pointer leads to the old root); a Next 16 server component (a stack naming a built chunk); Vue markup.
+const fakes = (n) => {
+  page(`react${n}`, `<div id="app"><p id="t">React words</p></div><script>
+    const fib = (o) => Object.assign({ alternate: null, return: null, child: null, sibling: null }, o);
+    function Home() {}
+    const rootNow = fib({ tag: 3 }), rootOld = fib({ tag: 3, alternate: rootNow }); rootNow.alternate = rootOld;
+    const root = { current: rootNow }; rootNow.stateNode = rootOld.stateNode = root;
+    const compNow = fib({ type: Home, return: rootNow }), compOld = fib({ type: Home, return: rootOld, alternate: compNow }); compNow.alternate = compOld;
+    rootNow.child = compNow; rootOld.child = compOld;
+    const hostOld = fib({ type: 'p', return: compOld, _debugSource: { fileName: 'src/Home.jsx', lineNumber: 6 } });
+    const hostNow = fib({ type: 'p', return: compNow, alternate: hostOld, _debugSource: { fileName: 'src/Home.jsx', lineNumber: 9 } });
+    hostOld.alternate = hostNow; compNow.child = hostNow; compOld.child = hostOld;
+    document.querySelector('#t').__reactFiber$x = hostOld;
+  </script>`);
+  for (const nm of [`next${n}`, `nextc${n}`]) page(nm, `<div id="app"><p id="t">Server words</p><p id="u">Client words</p></div><script>
+    const tops = 'Error: react-stack-top-frame\\n    at fakeJSXCallSite (http://localhost:1/_next/static/chunks/node_modules_next_dist_compiled_react-server-dom-turbopack_x._.js:2093:21)\\n';
+    document.querySelector('#t').__reactFiber$x = { return: null, type: 'p', _debugOwner: { name: 'Page', env: 'Server' }, _debugStack: { stack: tops + '    at Page (about://React/Server/file:///Users/me/app/.next/dev/server/chunks/ssr/%5Broot-of-the-server%5D__a._.js?4:52:264)\\n    at Object.react_stack_bottom_frame (http://localhost:1/_next/static/chunks/node_modules_x.js:2859:93)' } };
+    document.querySelector('#u').__reactFiber$x = { return: null, type: 'p', _debugStack: { stack: 'Error: react-stack-top-frame\\n    at exports.jsxDEV (http://localhost:1/_next/static/chunks/_abc._.js:255:33)\\n    at Counter (http://localhost:1/_next/static/chunks/_abc._.js:18:214)' } };
+  </script>`);
+  for (const nm of [`vue${n}`, `vueb${n}`]) page(nm, `<div id="app"><div id="v" data-k="1"><p id="st">Static words</p><p id="vb">Bound words</p></div></div><script>
+    document.querySelector('#vb').__vueParentComponent = document.querySelector('#v').__vueParentComponent = { type: { name: 'Home', __file: 'src/Home.vue' }, props: {}, parent: { type: { name: 'App', __file: 'src/App.vue' } } };
+  </script>`);
 };
 const fade = (n, below) => page(`fade${n}`, `<h1>Fade</h1><button id="go" style="position:absolute;left:30px;top:80px;width:240px;height:40px">Target button</button><p style="margin-top:160px">${below}</p>`, '::view-transition-group(root){animation-duration:1s}');
 fs.writeFileSync(path.join(DIR, 'labit.json'), JSON.stringify({ port: PORT }));
@@ -85,6 +112,8 @@ try {
       const root = () => p.evaluateHandle(() => [...document.querySelectorAll('*')].find((n) => n.shadowRoot?.querySelector('.scrim')).shadowRoot);
       // A click on the page, the words typed, Enter: the comment as the lab saved it (null when none arrived).
       const pin = async (name, x, y, text) => {
+        await p.keyboard.press('Escape'); // (a second pin on a page: the first one's card is shut, or the click only shuts it)
+        await sleep(300);
         await p.mouse.click(x, y);
         await p.waitForFunction(() => [...document.querySelectorAll('*')].find((n) => n.shadowRoot?.querySelector('.scrim'))?.shadowRoot.querySelector('.float textarea'), null, { timeout: 5000 }).catch(() => {});
         await p.keyboard.insertText(text);
@@ -184,6 +213,33 @@ try {
       fs.writeFileSync(path.join(DIR, file), body([], false));
       const gonel = await written();
       check(eng, 'the element taken out of the file: no line is named, it says it was not found again', gonel[0]?.startsWith(`written at: ${file} (the pin recorded line 6;`) && /not found again/.test(gonel[0]) && gonel[1] === `written at: ${file}:5:3`, JSON.stringify(gonel));
+
+      // 7. The source a framework's markers give: right, or none. (The markers are made by hand here.)
+      await p.goto(`${B}/react${n}`);
+      await ready();
+      const rc = await pin(`react${n}`, ...(await centre('#t')), 'react pin');
+      check(eng, 'React after a hot update: the line is the one of the fiber on screen (9), not the node\'s own stale one (6)', rc?.anchor.source === 'src/Home.jsx:9' && rc.anchor.component === 'Home', `${rc?.anchor.component} | ${rc?.anchor.source}`);
+      const rline = (await agent(`react${n}`)).split('\n').find((l) => l.startsWith('written at:')) || '';
+      check(eng, 'React: the agent reads that line (the file is not in this lab, so the text says the line is as pinned and not checked)', /^written at: src\/Home\.jsx:9( \(line from when it was pinned;.*\))?$/.test(rline), rline);
+      await p.goto(`${B}/next${n}`);
+      await ready();
+      const srv = await pin(`next${n}`, ...(await centre('#t')), 'server pin');
+      await p.goto(`${B}/nextc${n}`);
+      await ready();
+      const cli = await pin(`nextc${n}`, ...(await centre('#u')), 'client pin');
+      const nt = await agent(`next${n}`) + await agent(`nextc${n}`);
+      check(eng, 'Next: a server component is named by its owner and no built chunk is given as its source', srv?.anchor.component === 'Page' && !srv.anchor.source, `${srv?.anchor.component} | ${srv?.anchor.source}`);
+      check(eng, 'Next: an element a client chunk drew has no source either', Boolean(cli) && !cli.anchor.source && !cli.anchor.usedAt, `${cli?.anchor.source} | ${cli?.anchor.usedAt}`);
+      check(eng, 'Next: nothing in the agent\'s text names a built file', !/\.next\/|_next\/|chunks\//.test(nt.split('\n').filter((l) => /^(written at|component used at):/.test(l)).join('\n')) && !/^written at:/m.test(nt), nt.split('\n').filter((l) => /written at/.test(l)).join(' | '));
+      await p.goto(`${B}/vue${n}`);
+      await ready();
+      const stat = await pin(`vue${n}`, ...(await centre('#st')), 'static pin');
+      await p.goto(`${B}/vueb${n}`);
+      await ready();
+      const bound = await pin(`vueb${n}`, ...(await centre('#vb')), 'bound pin');
+      check(eng, 'Vue: an element with its own component gets the file with no note', bound?.anchor.source === 'src/Home.vue', `${bound?.anchor.source}`);
+      check(eng, 'Vue static markup: the component above it and its file, with the line said to be unknown', stat?.anchor.source === 'src/Home.vue (line unknown: static markup)' && /^Home/.test(stat.anchor.component), `${stat?.anchor.component} | ${stat?.anchor.source}`);
+      check(eng, 'Vue: the agent reads that note', /^written at: src\/Home\.vue \(line unknown: static markup\)$/m.test(await agent(`vue${n}`)));
       await p.goto('about:blank');
       await ctx.close();
     } finally {

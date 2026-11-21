@@ -21,30 +21,35 @@ let lastOpts: Opts | null = null; // a forward to #board=<name> opens it as the 
 // the page's own !important on the host (an inner shadow context wins the important declarations); the height is the
 // --bv-h variable, set inline by paintSize. cursor: inherit keeps the page's pin pointer over the board.
 const CSS = `
-:host{all:initial!important;opacity:var(--bv-o,1)!important;translate:0 calc(var(--bv-pan,0px) + var(--bv-y,0px))!important;clip-path:var(--bv-clip,none)!important;transition:clip-path var(--bv-clip-t,0s) cubic-bezier(.32,.72,0,1),translate var(--bv-t,0ms) var(--bv-e,cubic-bezier(.32,.72,0,1))!important;display:flex!important;flex-direction:column!important;position:fixed!important;left:0!important;right:0!important;bottom:0!important;height:var(--bv-h,100%)!important;zoom:var(--bv-z,1)!important;z-index:2147482000!important;overscroll-behavior:none!important;background:#f7f7f7!important;color:#1d1d1b!important;box-shadow:0 -1px 0 rgba(0,0,0,.12),0 -8px 24px rgba(0,0,0,.08)!important;font:500 13px/1 system-ui,-apple-system,sans-serif!important;direction:ltr!important;cursor:inherit!important}
+:host{--_radius:var(--lab-radius,12px);--_r-s:6px;all:initial!important;opacity:var(--bv-o,1)!important;translate:0 calc(var(--bv-pan,0px) + var(--bv-y,0px))!important;clip-path:var(--bv-clip,none)!important;transition:clip-path var(--bv-clip-t,0s) cubic-bezier(.32,.72,0,1),translate var(--bv-t,0ms) var(--bv-e,cubic-bezier(.32,.72,0,1))!important;display:flex!important;flex-direction:column!important;position:fixed!important;left:0!important;right:0!important;bottom:0!important;height:var(--bv-h,100%)!important;zoom:var(--bv-z,1)!important;z-index:2147482000!important;overscroll-behavior:none!important;background:#f7f7f7!important;color:#1d1d1b!important;box-shadow:0 -1px 0 rgba(0,0,0,.12),0 -8px 24px rgba(0,0,0,.08)!important;font:500 13px/1 system-ui,-apple-system,sans-serif!important;direction:ltr!important;cursor:inherit!important}
 .bv-bar{position:relative;flex:none;touch-action:none;display:flex;align-items:center;gap:6px;height:40px;padding:0 8px;background:inherit;border-bottom:1px solid rgba(0,0,0,.08);translate:0 var(--bv-bar,0px);transition:translate var(--bv-clip-t,0s) cubic-bezier(.32,.72,0,1)}
 :host(.full) .bv-bar{height:calc(40px + env(safe-area-inset-top,0px));padding-top:env(safe-area-inset-top,0px)}
-.bv-bar button{font:inherit;color:inherit;background:transparent;border:0;border-radius:999px;padding:7px 11px;cursor:pointer}
-.bv-bar button:hover{background:rgba(0,0,0,.06)}
-.bv-name{flex:1;text-align:center;opacity:.7;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;line-height:normal}
+.bv-bar button{font:400 14px/1.4 var(--lab-font,system-ui,-apple-system,sans-serif);letter-spacing:-.011em;color:inherit;background:transparent;border:0;border-radius:var(--_r-s,6px);padding:5px 10px;cursor:pointer;transition:background-color var(--lab-t-quick,120ms) var(--lab-ease-out,cubic-bezier(0,0,.58,1))}
+.bv-bar button:hover{background:var(--lab-hover,rgba(0,0,0,.10))}
+.bv-bar button:focus-visible{outline:2px solid currentColor;outline-offset:2px}
+.bv-name{position:absolute;left:50%;translate:-50% 0;width:calc(100% - 220px);pointer-events:none;text-align:center;font:400 14px/1.4 var(--lab-font,system-ui,-apple-system,sans-serif);letter-spacing:-.011em;opacity:.5;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;line-height:normal}
 .bv-grip{position:absolute;left:0;right:0;top:-5px;height:10px;cursor:ns-resize;touch-action:none;z-index:1}
 .bv-grip::after{content:"";position:absolute;left:50%;top:7px;width:36px;height:4px;margin-left:-18px;border-radius:2px;background:currentColor;opacity:.25}
-:host(.full) .bv-grip{top:env(safe-area-inset-top,0px)}
-:host(.full) .bv-grip::after{top:3px}
+/* The same spot half and full (it moved 4 px as the view went full: Leo, 21 Nov), under a phone's notch when full. */
+:host(.full) .bv-grip{top:calc(env(safe-area-inset-top,0px) - 5px)}
+.bv-size{margin-left:auto}
+@media (pointer:fine){.bv-bar{cursor:ns-resize}.bv-grip{top:-10px;height:20px}.bv-grip::after{top:12px}:host(.full) .bv-grip{top:calc(env(safe-area-inset-top,0px) - 10px)}}
 .bv-box{position:relative;flex:1;min-height:0}
 .bv-box #lab-board{position:absolute}
 @media (pointer:coarse){.bv-bar{z-index:1}.bv-bar button{position:relative;z-index:2;min-width:44px}.bv-bar button::before{content:"";position:absolute;left:0;right:0;top:-9px;bottom:-12px}}
-@media (prefers-color-scheme:dark){:host{background:#1b1b1a!important;color:#e9e8e4!important}.bv-bar button:hover{background:rgba(255,255,255,.08)}.bv-bar{border-color:rgba(255,255,255,.08)}}
+@media (prefers-color-scheme:dark){:host{background:#1b1b1a!important;color:#e9e8e4!important}.bv-bar button:hover{background:var(--lab-hover,rgba(255,255,255,.10))}.bv-bar{border-color:rgba(255,255,255,.08)}}
+@supports (corner-shape:squircle){:host{--_radius:calc(var(--lab-radius,12px)*1.8);--_r-s:11px}*{corner-shape:squircle}}
 `;
 const MIN = 0.25; // the least of the window it is dragged down to
+const HALF = 0.5; // a board opens at half height, the page above it, until it is set otherwise (Leo, 21 Nov: "open boards half not full by default")
 const EDGE = 280; // ms: a half view's top edge going up as the keyboard comes, and back down after
 const sizeKey = (page: string) => `lab-board-size:${page}`;
 const readSize = (page: string) => {
   try {
     const v = parseFloat(localStorage.getItem(sizeKey(page)) || '');
-    return v >= MIN && v <= 1 ? v : 1;
+    return v >= MIN && v <= 1 ? v : HALF;
   } catch {
-    return 1;
+    return HALF;
   }
 };
 const saveSize = (page: string, v: number) => {
@@ -91,8 +96,9 @@ export function show(name: string, o: Opts) {
   const title = Object.assign(document.createElement('span'), { className: 'bv-name', textContent: `board ${name}` });
   let size = o.own ? 1 : readSize(o.page);
   const toggle = btn('', 'full or half', () => {
-    size = size >= 1 ? 0.5 : 1;
+    size = size >= 1 ? HALF : 1;
     saveSize(o.page, size);
+    board.keep(); // its zoom stays
     paintSize();
     // One step, so fitted in this same frame: where the view is is read now (it is asked for by the board's pins), and the
     // board fits to the new size before anything is drawn (not 200 ms on, once the box rests, as a dragged edge does).
@@ -125,6 +131,7 @@ export function show(name: string, o: Opts) {
   // pointer drag go now and then (the first drag after opening did nothing, iOS 27 simulator, 21 Nov). A mouse or a pen
   // by its pointer events.
   const pulling = (y0: number, t0: number) => {
+    board.keep(); // its zoom stays as the edge moves
     let frame = 0;
     let below = 0; // px pulled past the least height
     const moves = [{ t: t0, y: y0 }];
@@ -344,7 +351,7 @@ export function show(name: string, o: Opts) {
     history.replaceState(history.state, '', `${location.pathname}${location.search}`);
     location.assign(`${of.split('#')[0]}#board=${name}`);
   };
-  const board = mountBoard(root, name, o.own ? { of: o.of, back: o.of ? () => backTo(o.of || '') : undefined, hash: true, clip: true } : { of: o.of, back: () => close(), clip: true, home });
+  const board = mountBoard(root, name, o.own ? { of: o.of, back: o.of ? () => backTo(o.of || '') : undefined, hash: true, clip: true } : { of: o.of, back: () => close(), clip: true, home, keep: `lab-board-cam:${o.page}:${name}` });
   const covers = (x: number, y: number) => x >= at.left && x <= at.right && y >= at.top && y <= at.bottom;
   Object.assign(window, { __labBoard: { ...board.api, covers } });
   // The page scrolls under a half view: its pins and the board's are drawn again.
@@ -367,7 +374,29 @@ export function show(name: string, o: Opts) {
     view.style.setProperty('--bv-o', '0');
     requestAnimationFrame(fade);
   }
-  cur = { name, view, destroy: () => (ro.disconnect(), removeEventListener('focusin', focused), vv?.removeEventListener('resize', watch), vv?.removeEventListener('scroll', watch), cancelAnimationFrame(loop), board.destroy()), onClose: o.onClose, restoration, pushed };
+  // A click on the page behind a half view closes the board, and only that: no pin, no link (Leo, 21 Nov: "clicking on
+  // the page behind board should close the board"). An open comment or the chat goes first, as a click outside one does.
+  // The widget's own buttons still work. A finger's tap on the page only reads, as on a page (phones close by the bar).
+  let swallow = false;
+  const behind = (e: PointerEvent) => {
+    swallow = false;
+    if (e.pointerType === 'touch' || e.button !== 0 || size >= 1 || o.own || e.altKey) return;
+    const path = e.composedPath();
+    if (path.includes(view) || path.some((n) => n instanceof Element && n.hasAttribute('data-lab-comments'))) return;
+    swallow = true;
+    e.preventDefault();
+    e.stopImmediatePropagation();
+    if (!(window as unknown as { __labBoardWidget?: { dismiss?: () => boolean } }).__labBoardWidget?.dismiss?.()) close();
+  };
+  const eat = (e: Event) => {
+    if (!swallow) return;
+    if (e.type === 'click') swallow = false;
+    e.preventDefault();
+    e.stopImmediatePropagation();
+  };
+  addEventListener('pointerdown', behind, true);
+  for (const t of ['mousedown', 'pointerup', 'mouseup', 'click']) addEventListener(t, eat, true);
+  cur = { name, view, destroy: () => (removeEventListener('pointerdown', behind, true), ['mousedown', 'pointerup', 'mouseup', 'click'].forEach((t) => removeEventListener(t, eat, true)), ro.disconnect(), removeEventListener('focusin', focused), vv?.removeEventListener('resize', watch), vv?.removeEventListener('scroll', watch), cancelAnimationFrame(loop), board.destroy()), onClose: o.onClose, restoration, pushed };
   moved();
 }
 
@@ -379,6 +408,11 @@ function teardown() {
   c.destroy();
   c.view.remove();
   delete (window as unknown as { __labBoard?: unknown }).__labBoard;
+  const y = keepY;
+  keepY = null;
+  const hold = () => y !== null && Math.abs(scrollY - y) > 1 && scrollTo({ top: y, behavior: 'instant' as ScrollBehavior });
+  hold();
+  requestAnimationFrame(() => (hold(), requestAnimationFrame(hold)));
   setTimeout(() => (history.scrollRestoration = c.restoration), 0);
   c.onClose?.();
   moved();
@@ -400,7 +434,10 @@ function slide(view: HTMLElement, into: boolean, speed = 0) {
     void view.offsetHeight;
   }
   const way = into ? now : h + 8 - now;
-  const [ms, curve] = into ? move.glide(way, speed, slow, quick) : speed > 0 ? move.carry(way, speed, slow, quick) : [base, 'cubic-bezier(.4, 0, 1, 1)'];
+  // Opened by a tap (from below the screen, at rest) or closed by one: the chat sheet's own motion, its curve and length
+  // (Leo, 21 Nov: "do same easing for open close as we do for chat for board drawer"): in over --lab-t-slow on --lab-ease,
+  // out over --lab-t-base on --lab-ease-in. Let go by a finger, it keeps the finger's speed (sheetmove.ts).
+  const [ms, curve] = into ? (off || speed ? move.glide(way, speed, slow, quick) : [slow, ease('ease', 'cubic-bezier(.2, .8, .2, 1)')]) : speed > 0 ? move.carry(way, speed, slow, quick) : [base, ease('ease-in', 'cubic-bezier(.4, 0, 1, 1)')];
   view.style.setProperty('--bv-e', curve);
   view.style.setProperty('--bv-t', `${ms}ms`);
   view.style.setProperty('--bv-y', `${into ? 0 : h + 8}px`);
@@ -413,6 +450,8 @@ const token = (k: string) => {
   const v = /^\s*([\d.]+)(m?s)\s*$/.exec(getComputedStyle(document.documentElement).getPropertyValue(`--lab-t-${k}`));
   return v ? parseFloat(v[1]) * (v[2] === 's' ? 1000 : 1) : ({ quick: 120, base: 200, slow: 300 } as Record<string, number>)[k] || 120;
 };
+// A curve of lab.css (--lab-ease, --lab-ease-in), as the comment widget has them.
+const ease = (k: string, or: string) => getComputedStyle(document.documentElement).getPropertyValue(`--lab-${k}`).trim() || or;
 let closing = false;
 /** Close the view: it slides down, then back, when it was opened here (the entry it added goes), else the address loses
  * its #board. The browser's own back takes it down at once (its own gesture is the motion). */
@@ -424,8 +463,12 @@ function close(speed = 0) {
   }
   now();
 }
+// Closing leaves the page where it is now, wherever it was scrolled to under the view: never back at the board's section
+// (Leo, 21 Nov: "closing board by clicking on canvas after scrolled a bit should not return to board section").
+let keepY: number | null = null;
 function now() {
   if (!cur) return;
+  keepY = scrollY;
   if (cur.pushed && nameInHash() === cur.name) return history.back(); // popstate (below) takes it down
   try {
     history.replaceState(history.state, '', `${location.pathname}${location.search}`);
@@ -467,12 +510,12 @@ export function own(name: string) {
 // straight under <body> it keeps off the screen's edges (in the shadow: what is on <lab-board> itself is the file's).
 const STRIP = `:host{display:block!important;box-sizing:border-box!important;margin:16px 0!important;font:13px/1.35 -apple-system,BlinkMacSystemFont,"Segoe UI",sans-serif;color:inherit;cursor:pointer}
 .edge{margin:0 16px}
-.box{border:1px solid color-mix(in srgb,currentColor 16%,transparent);border-radius:12px;padding:10px;background:color-mix(in srgb,rgb(52,199,89) 7%,transparent)}
+.box{border:1px solid color-mix(in srgb,currentColor 16%,transparent);border-radius:var(--_radius,12px);padding:10px;background:color-mix(in srgb,rgb(52,199,89) 7%,transparent)}
 .top{display:flex;align-items:center;gap:8px;margin:0 2px 8px}
 .top b{font-weight:600}.top span{opacity:.65;flex:1;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
-.top button{font:inherit;border:0;border-radius:999px;padding:4px 11px;cursor:pointer;background:rgba(52,199,89,.18);color:inherit}
+.top button{font:inherit;border:0;border-radius:var(--_radius,12px);padding:4px 11px;cursor:pointer;background:rgba(52,199,89,.18);color:inherit}
 .row{display:flex;gap:8px;overflow-x:auto;scrollbar-width:thin}
-.row>*{flex:none;height:120px;border-radius:8px;background:color-mix(in srgb,currentColor 6%,transparent)}
+.row>*{flex:none;height:120px;border-radius:var(--_r-s,6px);background:color-mix(in srgb,currentColor 6%,transparent)}
 img{display:block;max-width:240px;object-fit:cover}
 .page{width:160px;padding:10px;box-sizing:border-box;overflow:hidden;opacity:.8}
 .none{opacity:.65;padding:4px 2px}`;
@@ -482,7 +525,7 @@ const el = (tag: string, props: object = {}, ...kids: (Node | string)[]) => {
   return n;
 };
 /** A board as a section of the page: <lab-board name> (src/widget/boardcam.ts), filled with a strip of what is on the board. */
-export const section = async (host: HTMLElement, o: { page: string; about: (name: string) => string }) => {
+export const section = async (host: HTMLElement, o: { page: string }) => {
   const name = host.getAttribute('name') || '';
   if (!/^[a-z0-9][a-z0-9_-]*$/.test(name)) return;
   const root = host.shadowRoot || host.attachShadow({ mode: 'open' });
@@ -492,11 +535,11 @@ export const section = async (host: HTMLElement, o: { page: string; about: (name
   if (!b || String(b.of || '').split('#')[0] !== o.page) return void root.replaceChildren(); // an empty shadow: nothing shows
   const frames = (b?.frames || []).filter((f: { state?: string; src: string }) => f.state !== 'archived' && f.src.split(/[?#]/)[0] !== o.page);
   const thumb = (f: { kind?: string; src: string; label?: string; id: string }) => (f.kind === 'image' ? el('img', { src: f.src, alt: f.label || '', loading: 'lazy' }) : el('div', { className: 'page' }, f.label || (f.src.startsWith('/_lab/board/') ? `variant ${f.id}` : f.src)));
-  const said = o.about(name);
+  const said = String(b.title || '');
   root.replaceChildren(
     el('style', {}, STRIP),
     el('div', { className: host.parentElement === document.body ? 'box edge' : 'box' },
-      el('div', { className: 'top' }, el('b', {}, 'Board'), el('span', {}, `${frames.length || 'nothing'} on it${said && said !== '+board' ? ` · ${said.slice(0, 60)}` : ''}`), el('button', {}, 'Open')),
+      el('div', { className: 'top' }, el('b', {}, 'Board'), el('span', {}, `${frames.length || 'nothing'} on it${said ? ` · ${said.slice(0, 60)}` : ''}`), el('button', {}, 'Open')),
       frames.length ? el('div', { className: 'row' }, ...frames.map(thumb)) : el('div', { className: 'none' }, 'Open it to add pictures and pages for the agent.'),
     ),
   );

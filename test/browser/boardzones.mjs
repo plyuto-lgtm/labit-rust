@@ -4,7 +4,7 @@
 import fs from 'node:fs';
 import path from 'node:path';
 import { claimPort } from './port.mjs';
-import { playwright, engines, tmp, labEnv, startLab, labUp, sleep, check, finish } from './harness.mjs';
+import { playwright, engines, tmp, labEnv, startLab, labUp, sleep, check, finish, withAlt } from './harness.mjs';
 
 const pw = playwright();
 const DIR = tmp('labit-boardzones-');
@@ -36,11 +36,13 @@ try {
       await open();
       const fa = await rect('a');
       // an area: from a quarter to three quarters of frame a
-      await p.mouse.move(fa.x + fa.w * 0.25, fa.y + fa.h * 0.25);
-      await p.mouse.down();
-      await p.mouse.move(fa.x + fa.w * 0.5, fa.y + fa.h * 0.5, { steps: 6 });
-      await p.mouse.move(fa.x + fa.w * 0.75, fa.y + fa.h * 0.75, { steps: 6 });
-      await p.mouse.up();
+      await withAlt(p, async () => {
+        await p.mouse.move(fa.x + fa.w * 0.25, fa.y + fa.h * 0.25);
+        await p.mouse.down();
+        await p.mouse.move(fa.x + fa.w * 0.5, fa.y + fa.h * 0.5, { steps: 6 });
+        await p.mouse.move(fa.x + fa.w * 0.75, fa.y + fa.h * 0.75, { steps: 6 });
+        await p.mouse.up();
+      });
       await until(async () => (await p.locator('textarea').count()) > 0);
       await p.keyboard.type('this area');
       await p.keyboard.press('Enter');
@@ -64,13 +66,23 @@ try {
       await p.keyboard.down('d');
       await p.mouse.move(...ring[0]);
       await p.mouse.down();
-      for (const q of ring.slice(1)) await p.mouse.move(...q, { steps: 4 });
+      for (const q of ring.slice(1, 12)) await p.mouse.move(...q, { steps: 4 });
+      // the lines show as they are drawn, over the board (Leo, 21 Nov: "its not visible until i finish drawing")
+      const live = await p.evaluate(([x, y]) => {
+        const r = document.querySelector('[data-lab-comments]').shadowRoot;
+        const svg = r.querySelector('svg.ink.live, .ink.live');
+        const paths = svg ? svg.querySelectorAll('path').length : 0;
+        let top = document.elementFromPoint(x, y);
+        for (let i = 0; i < 3 && top?.shadowRoot; i++) top = top.shadowRoot.elementFromPoint(x, y) || top;
+        const box = svg?.getBoundingClientRect();
+        return { paths, box: box && [box.x, box.y, box.width, box.height], vis: svg && getComputedStyle(svg).visibility, op: svg && getComputedStyle(svg).opacity, host: getComputedStyle(document.querySelector('[data-lab-comments]')).zIndex };
+      }, ring[6]);
+      check(eng, 'a drawing on a board shows its lines while it is drawn', live.paths > 0 && live.vis !== 'hidden' && live.op !== '0', JSON.stringify(live));
+      for (const q of ring.slice(12)) await p.mouse.move(...q, { steps: 4 });
       await p.mouse.up();
       await p.keyboard.up('d');
-      await until(async () => (await p.locator('textarea').count()) > 0);
-      await p.keyboard.type('circle this');
-      await p.keyboard.press('Enter');
-      const draw = await until(async () => (await comments()).find((c) => c.text === 'circle this'));
+      // sent by itself, with what it reads as (no box: Leo, 21 Nov)
+      const draw = await until(async () => (await comments()).find((c) => c.anchor?.ink));
       const d = draw?.anchor || {};
       check(eng, 'a drawing on a frame keeps its lines and sits on that frame', d.frame === 'b' && Boolean(d.ink?.pts?.length) && d.zw > 0.2 && d.zw < 0.7 && d.fw === 820, JSON.stringify({ frame: d.frame, zw: d.zw, fw: d.fw, ink: Boolean(d.ink) }));
       const t2 = await text();

@@ -118,20 +118,27 @@ export const stroke = async (p, pts, steps = 6) => {
   for (const q of pts.slice(1)) await p.mouse.move(...q, { steps });
   await p.mouse.up();
 };
-// Hold D, draw the strokes, let D go: the new comment's box opens.
+// One more drawing sent on the page than `was` (a drawing is sent by itself a second after its last stroke, with no box:
+// Leo, 21 Nov: "just draw maybe and send dont open comment to send it, just send").
+export const sentAfter = (p, was, ms = 5000) => p.waitForFunction(([r, k]) => (new Function(`return ${r}`)()?.querySelectorAll('.pin.ink').length || 0) > k, [root, was], { timeout: ms }).then(() => true, () => false);
+// Hold D, draw the strokes, let D go: the drawing is sent as it is. sent: it was.
 export const drawn = async (p, strokes, steps = 6) => {
+  const was = (await look(p)).inkPins;
   await p.keyboard.down('d');
   for (const s of strokes) await stroke(p, s, steps);
   await p.keyboard.up('d');
-  await until(p, '.float textarea');
-  return look(p);
+  const sent = await sentAfter(p, was);
+  return { ...(await look(p)), sent };
 };
-// The open box sent with these words; the undo card it leaves is let go.
+// An open box (a plain area or pin) sent with these words; a drawing sends itself, so with no box only the undo card
+// it leaves is let go.
 export const send = async (p, words = 'look here') => {
-  const before = (await look(p)).pins;
-  await p.keyboard.type(words);
-  await p.keyboard.press('Enter');
-  await p.waitForFunction(([r, n]) => (new Function(`return ${r}`)()?.querySelectorAll('.pin:not(.draft)').length || 0) > n, [root, before], { timeout: 4000 }).catch(() => {});
+  if ((await look(p)).box) {
+    const before = (await look(p)).pins;
+    await p.keyboard.type(words);
+    await p.keyboard.press('Enter');
+    await p.waitForFunction(([r, n]) => (new Function(`return ${r}`)()?.querySelectorAll('.pin:not(.draft)').length || 0) > n, [root, before], { timeout: 4000 }).catch(() => {});
+  }
   await p.keyboard.press('Escape');
   await sleep(250);
 };

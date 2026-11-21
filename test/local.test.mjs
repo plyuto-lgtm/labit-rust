@@ -493,6 +493,18 @@ test('reply --progress keeps one line on the thread, replaced each time, with it
   assert.ok(now > was, `the comments version moves on (was ${was}, now ${now})`);
 });
 
+test('a --progress line that is a raw command reaches the page as plain words, never the command', async () => {
+  await up();
+  const id = await pinFor('raw progress thread');
+  const shown = async () => (await threadsOf()).find((x) => x.id === id).progress.text;
+  await run(['reply', id, '--progress', "cat > src/page.html <<'EOF' <h1>Hi</h1> EOF"]);
+  assert.equal(await shown(), 'editing a file');
+  await run(['reply', id, '--progress', 'grep -rn heading /home/user/site/pages']);
+  assert.equal(await shown(), 'reading the page');
+  await run(['reply', id, '--progress', 'node scripts/build.mjs --watch']);
+  assert.equal(await shown(), 'running a command');
+});
+
 test('an answer, a new message or resolving clears the progress line', async () => {
   await up();
   const get = async (id) => (await threadsOf()).find((x) => x.id === id);

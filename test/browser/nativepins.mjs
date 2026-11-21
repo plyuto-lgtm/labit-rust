@@ -120,7 +120,8 @@ try {
       for (let i = 1; i <= 22; i++) await p.mouse.move(c.x + 120 * Math.cos((i / 20) * 2 * Math.PI), c.y + 30 * Math.sin((i / 20) * 2 * Math.PI), { steps: 2 });
       await p.mouse.up();
       await p.keyboard.up('d');
-      await send('this one, circled');
+      n++; // sent as it is, no box
+      await p.waitForFunction(() => document.querySelector('[data-lab-comments]').shadowRoot.querySelector('.pin.ink'), null, { timeout: 5000 }).catch(() => {});
       await p.evaluate(() => scrollTo(0, 0));
       await settle(p);
       const names = PINS.map(([name]) => name).filter((k) => k !== 'own'); // own is put last, below

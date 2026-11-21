@@ -5,7 +5,7 @@
 import fs from 'node:fs';
 import path from 'node:path';
 import { claimPort } from './port.mjs';
-import { playwright, engines, tmp, labEnv, startLab, labUp, sleep, check, finish } from './harness.mjs';
+import { playwright, engines, tmp, labEnv, startLab, labUp, sleep, check, finish, withAlt } from './harness.mjs';
 
 const pw = playwright();
 
@@ -41,7 +41,7 @@ try {
       check(eng, 'the pin left on the old address is drawn there (it is the page\'s now)', (await stored('/pricing')).some((c) => c.id === 'old1') && (await pins(p)) === 1, String(await pins(p)));
       // A tap on frame a makes a pin: the page's comment, not the old address's.
       const a = await p.evaluate(() => { const r = document.querySelector('[data-lab-board-view]')?.shadowRoot?.querySelector('#lab-board .f[data-id="a"]').getBoundingClientRect(); return { x: r.x, y: r.y }; });
-      await p.mouse.click(a.x + 60, a.y + 80);
+      await withAlt(p, () => p.mouse.click(a.x + 60, a.y + 80));
       await sleep(400);
       await p.keyboard.type('one set of pins');
       await p.keyboard.press('Enter');

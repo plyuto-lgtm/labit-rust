@@ -25,11 +25,14 @@ const px = (n: number) => `${Math.round(n * 100) / 100}px`;
 // Where the browser put each tied card, as an offset from what it is tied to: once the page scrolls, the card is held
 // at that offset with no fallbacks, so it goes off screen with its pin (the fallbacks and the screen's floor are for where
 // it opens and when it grows; while scrolling they flipped it above and below its pin and pinned it to the screen's top).
-const rests = new Map<HTMLElement, { to: Element; x: number; y: number; frozen: boolean }>();
+// A card is the exception: its place is the script's own (spot, lay), kept as offsets from its pin whatever the page
+// does, so scrolling can't move it relative to its pin; it is laid again only when its size or the window's changes.
+type Tie = { to: Element; x: number; y: number; frozen: boolean; pin?: boolean; rel?: Want };
+const rests = new Map<HTMLElement, Tie>();
 let watching: ResizeObserver | null = null;
 const rest = (node: HTMLElement) => {
   const at = rests.get(node);
-  if (!at || at.frozen || !node.isConnected) return at;
+  if (!at || at.frozen || at.rel || !node.isConnected) return at;
   // At the end of its opening motion (it moves the box a few px, and it may still be running): where it settles.
   const moving = node.getAnimations();
   const was = moving.map((m) => m.currentTime);
@@ -47,19 +50,63 @@ const thaw = (node: HTMLElement) => {
   node.style.left = node.style.top = '';
 };
 const settled = (e: AnimationEvent) => e.target === e.currentTarget && rest(e.currentTarget as HTMLElement);
-function followPin(node: HTMLElement, to: Element) {
-  rests.set(node, { to, x: 0, y: 0, frozen: false });
-  (watching ??= new ResizeObserver((es) => es.forEach((e) => rest(e.target as HTMLElement)))).observe(node);
+function followPin(node: HTMLElement, tie: Tie) {
+  rests.set(node, tie);
+  (watching ??= new ResizeObserver((es) => es.forEach((e) => lay(e.target as HTMLElement) || rest(e.target as HTMLElement)))).observe(node);
   node.addEventListener('animationstart', settled);
 }
+// Where a card goes, in the window's own px: want's cx / cy are its corner below its pin, ay its bottom above it. In
+// this order: below, above, beside (right, then left) a pin that is a point; the first that has the card whole in the
+// window (12 px in from the sides, 8 from the top and bottom, the reply box with it). The side it was on goes first,
+// so the card stays where it is while it still fits and a small change never turns it over. Where none fits, below
+// it, held inside the window while its pin is in sight.
+type Side = 'below' | 'above' | 'right' | 'left';
+let kept: [unknown, Side] | null = null;
+function spot(want: Want, w: number, h: number): [number, number, Side] {
+  const [vw, vh] = [document.documentElement.clientWidth, document.documentElement.clientHeight];
+  const { cx, cy, ay } = want;
+  const x = Math.max(12, Math.min(cx, vw - 12 - w));
+  const y = Math.max(8, Math.min(cy - 46, vh - 8 - h)); // beside, its top a little above the pin's
+  const at: Partial<Record<Side, [number, number]>> = { below: [x, cy], above: [x, ay - h] };
+  if (Math.abs(ay - cy + 50) < 1) Object.assign(at, { right: [cx + 52, y], left: [cx + 4 - w, y] }); // a point's pin is 28 px wide, from cx + 14, 10 px off it
+  const id = W.S.openId;
+  const was = kept?.[0] === id && W.S.shown === id ? kept[1] : null; // a thread opened afresh starts from the order
+  const whole = (s: Side | null) => {
+    const p = s && at[s];
+    return Boolean(p && p[0] >= 11.5 && p[0] + w <= vw - 11.5 && p[1] >= 7.5 && p[1] + h <= vh - 7.5);
+  };
+  const fits = [was, 'below', 'above', 'right', 'left'].find((s) => whole(s as Side | null)) as Side | undefined;
+  const side = fits || was || 'below';
+  if (id) kept = [id, side];
+  const [l, t] = at[side] || at.below!;
+  return [l, fits || cy < 0 || cy > vh ? t : Math.max(8, Math.min(t, vh - 8 - h)), side];
+}
+// The corner of what a card is tied to, in the window's px (tieToPin).
+const cornerOf = (at: Tie) => {
+  const r = at.pin && (at.to as HTMLElement).offsetParent ? (at.to as HTMLElement).offsetParent!.getBoundingClientRect() : at.to.getBoundingClientRect();
+  return at.pin ? [r.left + (at.to as HTMLElement).offsetLeft, r.top + (at.to as HTMLElement).offsetTop] : [r.left, r.top];
+};
+// A card laid at its place: offsets from its pin, no fallbacks. False for a box that is not a card.
+function lay(node: HTMLElement) {
+  const at = rests.get(node);
+  if (!at?.rel || !node.isConnected) return false;
+  const [ax, ay] = cornerOf(at);
+  const { cx, cy, ay: up } = at.rel;
+  const [l, t, side] = spot({ cx: ax + cx, cy: ay + cy, ay: ay + up }, node.offsetWidth, node.offsetHeight);
+  node.style.setProperty('position-try-fallbacks', 'none');
+  node.style.left = `calc(anchor(left) + ${px(l - ax)})`;
+  node.style.top = `calc(anchor(top) + ${px(t - ay)})`;
+  node.style.transformOrigin = side === 'above' ? '14px 100%' : '';
+  return true;
+}
 function bindThreadScroll() {
-  addEventListener('resize', () => rests.forEach((_, n) => (thaw(n), requestAnimationFrame(() => rest(n)))));
+  addEventListener('resize', () => rests.forEach((at, n) => (at.rel ? lay(n) : (thaw(n), requestAnimationFrame(() => rest(n))))));
   addEventListener(
     'scroll',
     () =>
       rests.forEach((at, node) => {
         if (!node.isConnected) return rests.delete(node);
-        if (at.frozen) return;
+        if (at.frozen || at.rel) return;
         // Not measured yet (the page scrolled right after the card was drawn, as a reload putting the scroll back
         // does): measured now, or it would be held at no offset at all, on top of its pin.
         if (!at.x && !at.y) rest(node);
@@ -104,21 +151,22 @@ export function tieToPin(node: HTMLElement, pin: HTMLElement | null | undefined,
   set('--lab-uy', want.uy === undefined ? undefined : want.uy - y);
   set('--lab-ay', want.ay - y);
   node.style.left = node.style.top = '';
-  followPin(node, to);
+  const rel = kind === 'card' ? { cx: want.cx - x, cy: want.cy - y, ay: want.ay - y } : undefined;
+  followPin(node, { to, x: 0, y: 0, frozen: false, pin: to === pin, rel });
+  lay(node);
 }
 
 // aboveY: where the card's bottom goes when it opens above (an area's: above the area, not its pin).
 export function placeCard(card, left, top, pin?: HTMLElement | null, aboveY = top - 40) {
   if (card.parentNode !== W.layer) W.layer.append(card); // one already there stays (moving a card takes the cursor from its box)
-  const width = card.offsetWidth;
-  const maxLeft = scrollX + document.documentElement.clientWidth - width - 12;
-  card.style.left = `${Math.max(scrollX + 12, Math.min(left - 14, maxLeft))}px`;
-  // Near the page's end a thread opens above its pin, so it doesn't make the page longer and push things down.
-  const h = card.offsetHeight;
-  const below = top + 10 + h > W.contentEnd();
-  card.style.top = `${below ? Math.max(scrollY + 8, top - 40 - h) : top + 10}px`; // above: clear of the pin (28 px tall)
-  card.style.transformOrigin = below ? '14px 100%' : '';
-  tieToPin(card, pin, 'card', { cx: left - 14, cy: top + 10, ay: aboveY });
+  const want = { cx: left - 14, cy: top + 10, ay: aboveY };
+  tieToPin(card, pin, 'card', want); // tied: laid by the browser's anchor (lay), at the place spot() gives
+  if (pin) return;
+  // On the page's own px (a board's card is held to the screen after this, comments.js onBoard).
+  const [l, t, side] = spot({ cx: want.cx - scrollX, cy: want.cy - scrollY, ay: want.ay - scrollY }, card.offsetWidth, card.offsetHeight);
+  card.style.left = `${l + scrollX}px`;
+  card.style.top = `${t + scrollY}px`;
+  card.style.transformOrigin = side === 'above' ? '14px 100%' : '';
 }
 
 // Draft composer sits to the right of its pin, like the pin is the avatar; below it when there is no room.

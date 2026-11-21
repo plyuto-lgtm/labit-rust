@@ -1,12 +1,12 @@
 // Edge cases of drawing pins (hold D and drag): strokes that join or don't, D let go and pressed again, D let go
 // before the pointer lifts, the one-second wait that ends a drawing and a stroke after it, Escape, a window blur and a
 // pointercancel mid-stroke, a 1000-point stroke and ten strokes (what reaches the store), two drawings in a row, and
-// a reload with a drawing not sent yet.
+// a reload right after one. A drawing is sent by itself, with no box (Leo, 21 Nov).
 // Run: NODE_PATH=… ENGINES=chromium node test/browser/edge-draw2.mjs   (also ENGINES=webkit)
-import { box, check, done, drawn, eachEngine, go, lab, letters, look, mark, note, ring, root, said, send, sleep, stroke, until } from './edge-draw-kit.mjs';
+import { box, check, done, drawn, eachEngine, go, lab, letters, look, mark, note, ring, root, said, send, sentAfter, sleep, stroke, until } from './edge-draw-kit.mjs';
 
 const PAGE = '<!doctype html><meta charset="utf-8"><title>d</title><style>body{margin:40px;font:20px/1.5 sans-serif} h1{margin:0 0 80px} p{width:600px;margin:0 0 60px}</style><h1 id="h">Pricing</h1><p id="a">Plans start small and grow with you</p><p id="b">Cancel any time from your account</p><p id="c">Questions go to the team</p>';
-const NAMES = ['halves', 'far', 'same', 'again', 'early', 'wait', 'esc', 'blur', 'cancel', 'big', 'ten', 'quick', 'quick2', 'reload', 'reload2'];
+const NAMES = ['halves', 'far', 'same', 'again', 'early', 'wait', 'esc', 'blur', 'cancel', 'big', 'ten', 'quick', 'reload'];
 const L = await lab(Object.fromEntries(NAMES.map((n) => [n, PAGE])));
 const short = (o) => JSON.stringify(o).slice(0, 320);
 
@@ -42,19 +42,18 @@ try {
     const hitW = await p.evaluate((r) => { const b = new Function(`return ${r}`)().querySelector('.pin.ink path.hit')?.getBoundingClientRect(); return b ? Math.round(b.width) : -1; }, root);
     check(eng, 'a loop that ends on the very pixel it began keeps its line: the sent drawing can be seen and clicked, the agent gets the loop', (same?.ink.pts[0].length || 0) > 8 && hitW > 100 && /drawn: (circled|box)/.test(sameText), `${(same?.ink.pts[0].length || 0) / 2} points kept (${JSON.stringify(same?.ink.pts[0])}), the line to click is ${hitW} px wide; ${said(sameText)}`);
 
-    // 3. D let go after one stroke (its box opens), then D pressed and a second stroke drawn.
+    // 3. D let go after one stroke (it is sent), then D pressed and a second stroke drawn: a drawing of its own.
     await go(p, L.B, 'again');
     const a3 = await box(p, 'a');
     const c3 = await box(p, 'c');
     const first = await drawn(p, [ring(a3.l + 60, a3.cy, 70, 26)]);
     await p.keyboard.down('d');
-    const afterD = await look(p);
     await stroke(p, ring(c3.l + 60, c3.cy, 70, 26));
     await p.keyboard.up('d');
-    await sleep(1300);
+    await sleep(1600);
     const second = await look(p);
-    const stored = await p.evaluate(() => Object.entries(localStorage).filter(([k]) => /^lab-(typing|spot)/.test(k)).map(([k, v]) => `${k}=${v.slice(0, 30)}`).join(' '));
-    check(eng, 'D let go, then pressed again for a second stroke: the first drawing is not lost from the page (still the open draft, or joined by the new stroke)', first.box && second.box && second.draftInk === 1 && second.draftAt.t <= first.draftAt.t + 4 && second.live === 0, short({ first: first.draftAt, afterD: { box: afterD.box, typed: afterD.typed }, afterStroke: { box: second.box, typed: second.typed, draftInk: second.draftInk, at: second.draftAt }, stored }));
+    const again = await inks('again');
+    check(eng, 'D let go, then pressed again for a second stroke: the first drawing is sent and kept, the second is sent as its own', first.sent && again.length === 2 && second.live === 0 && !second.box, short({ first: first.sent, stored: again.length, live: second.live, box: second.box }));
     await p.keyboard.press('Escape');
 
     // 4. D let go before the pointer lifts.
@@ -69,30 +68,31 @@ try {
     await p.keyboard.up('d');
     for (const q of pts.slice(13)) await p.mouse.move(...q, { steps: 4 });
     await p.mouse.up();
-    await until(p, '.float textarea', 2500);
+    await sentAfter(p, 0);
     const e1 = await look(p);
-    check(eng, 'D let go before the pointer lifts: the stroke is drawn to its end and its box opens', e1.box && e1.draftInk === 1 && e1.draftAt.r - e1.draftAt.l > 140, short(e1.draftAt));
+    const early = (await inks('early'))[0]?.anchor;
+    check(eng, 'D let go before the pointer lifts: the stroke is drawn to its end and sent', e1.inkPins === 1 && (early?.docW || 0) > 140, short({ inkPins: e1.inkPins, w: early?.docW }));
     check(eng, 'D let go before the pointer lifts: done pins are not shown or hidden by it', e0.hideDone === e1.hideDone, `lab-hide-done "${e0.hideDone}" -> "${e1.hideDone}"`);
     await p.keyboard.press('Escape');
 
-    // 5. D held, one stroke, a wait of more than a second (the drawing is done by itself), then another stroke.
+    // 5. D held, one stroke, a wait of more than a second (the drawing is done and sent by itself), then another stroke.
     await go(p, L.B, 'wait');
     const w0 = await look(p);
     const a5 = await box(p, 'a');
     const c5 = await box(p, 'c');
     await p.keyboard.down('d');
     await stroke(p, ring(a5.l + 60, a5.cy, 70, 26));
-    await sleep(1400);
+    await sleep(1600);
     const w1 = await look(p);
-    check(eng, 'D still held, a second after the stroke: the box opens by itself with the lines', w1.box && w1.draftInk === 1 && w1.live === 0, short({ box: w1.box, draftInk: w1.draftInk, live: w1.live }));
+    check(eng, 'D still held, a second after the stroke: the drawing is sent by itself, no box', w1.inkPins === 1 && !w1.box && w1.live === 0, short({ inkPins: w1.inkPins, box: w1.box, live: w1.live }));
     await stroke(p, ring(c5.l + 60, c5.cy, 70, 26));
-    await sleep(1400);
-    const w2 = await look(p);
+    await sleep(1600);
     await p.keyboard.up('d');
     await sleep(300);
     const w3 = await look(p);
-    check(eng, 'a stroke drawn after that wait, D never let go: the first stroke is not thrown away (it is in the draft, alone or with the new one)', w2.box && w2.draftInk === 1 && w2.draftAt.t < a5.b && w2.draftAt.b > a5.t, short({ first: w1.draftAt, after: w2.draftAt, strokes: w2.draftStrokes }));
-    check(eng, 'letting D go at the end of it flips no done pins and types nothing', w3.hideDone === w0.hideDone && w3.typed === '', short({ hideDone: [w0.hideDone, w3.hideDone], typed: w3.typed }));
+    const waited = await inks('wait');
+    check(eng, 'a stroke drawn after that wait, D never let go: a second drawing, the first still kept', waited.length === 2, short({ stored: waited.length }));
+    check(eng, 'letting D go at the end of it flips no done pins and opens no box', w3.hideDone === w0.hideDone && !w3.box, short({ hideDone: [w0.hideDone, w3.hideDone], box: w3.box }));
     await p.keyboard.press('Escape');
 
     // 6. Escape in the middle of a stroke.
@@ -108,13 +108,14 @@ try {
     for (const q of ps.slice(13)) await p.mouse.move(...q, { steps: 4 });
     await p.mouse.up();
     await p.keyboard.up('d');
-    await sleep(1400);
+    await sleep(1600);
     const e6 = await look(p);
+    const escs = (await inks('esc')).length;
     // Either answer is a fair one (Escape drops the stroke, or it is not Escape's to take): never half of each.
-    const dropped = !e6.box && !e6.live && !e6.draftInk;
-    const kept = e6.box && e6.draftInk === 1 && !e6.live;
-    check(eng, 'Escape mid-stroke leaves nothing half done: the stroke is dropped whole or drawn whole, no lines left on the page, nothing stuck', (dropped || kept) && !e6.dragging, short({ mid: { live: mid.live, dragging: mid.dragging }, after: { box: e6.box, live: e6.live, draftInk: e6.draftInk, dragging: e6.dragging, at: e6.draftAt } }));
-    note(eng, 'Escape mid-stroke today', dropped ? 'drops the stroke' : kept ? `does nothing: the stroke goes on and its box opens (${e6.draftAt.r - e6.draftAt.l} px wide)` : 'half done');
+    const dropped = escs === 0 && !e6.live;
+    const kept = escs === 1 && !e6.live;
+    check(eng, 'Escape mid-stroke leaves nothing half done: the stroke is dropped whole or sent whole, no lines left on the page, nothing stuck', (dropped || kept) && !e6.dragging, short({ mid: { live: mid.live, dragging: mid.dragging }, after: { stored: escs, live: e6.live, dragging: e6.dragging } }));
+    note(eng, 'Escape mid-stroke today', dropped ? 'drops the stroke' : kept ? 'does nothing: the stroke goes on and is sent' : 'half done');
     await p.keyboard.press('Escape');
 
     // 7. D held, a stroke, then the window loses the keyboard (another app, a dialog): keyup never comes.
@@ -124,14 +125,15 @@ try {
     await p.keyboard.down('d');
     await stroke(p, ring(a7.l + 60, a7.cy, 70, 26));
     await p.evaluate(() => window.dispatchEvent(new Event('blur')));
-    await sleep(1400);
+    await sleep(1600);
     const b1 = await look(p);
-    check(eng, 'D held, a stroke, then the window loses focus (blur made in the page): the drawing is not lost, its box opens', b1.box && b1.draftInk === 1 && !b1.live, short({ box: b1.box, draftInk: b1.draftInk, live: b1.live }));
-    await p.keyboard.up('d'); // the key comes up at last, in the box
+    check(eng, 'D held, a stroke, then the window loses focus (blur made in the page): the drawing is not lost, it is sent', b1.inkPins === 1 && !b1.live, short({ inkPins: b1.inkPins, live: b1.live }));
+    await p.keyboard.up('d');
     await p.keyboard.press('Escape');
     await sleep(200);
     const b2 = await look(p);
-    await stroke(p, [[a7.l, a7.t - 10], [a7.l + 200, a7.b + 10]]);
+    const c7 = await box(p, 'c'); // clear of the sent drawing
+    await stroke(p, [[c7.l, c7.t - 10], [c7.l + 200, c7.b + 10]]);
     await until(p, '.float textarea');
     const b3 = await look(p);
     check(eng, 'after that blur D counts as let go: the next plain drag is a box, not lines, and done pins did not flip', b3.box && b3.zone === 1 && b3.draftInk === 0 && b3.live === 0 && b2.hideDone === b0.hideDone, short({ zone: b3.zone, draftInk: b3.draftInk, hideDone: [b0.hideDone, b2.hideDone] }));
@@ -150,9 +152,10 @@ try {
     const c1 = await look(p);
     await p.mouse.up();
     await p.keyboard.up('d');
-    await sleep(1400);
+    await sleep(1600);
     const c2 = await look(p);
-    check(eng, 'pointercancel mid-stroke (the only stroke): nothing is left drawn on the page, and no box opens for half a stroke once D is let go', !c2.live && !c2.box && !c2.dragging, short({ atCancel: { live: c1.live, dragging: c1.dragging }, afterD: { box: c2.box, live: c2.live, draftInk: c2.draftInk, at: c2.draftAt } }));
+    const cancels = (await inks('cancel')).length;
+    check(eng, 'pointercancel mid-stroke (the only stroke): nothing is left drawn on the page, and nothing is sent for half a stroke', !c2.live && !c2.box && !c2.dragging && cancels === 0, short({ atCancel: { live: c1.live, dragging: c1.dragging }, afterD: { box: c2.box, live: c2.live, stored: cancels } }));
     await p.keyboard.press('Escape');
 
     // 9. One stroke of 1000 points: a scribble from the left of the page to the right, 125 times up and down.
@@ -186,55 +189,22 @@ try {
     const a11 = await box(p, 'a');
     const c11 = await box(p, 'c');
     await drawn(p, [ring(a11.l + 60, a11.cy, 70, 26)]);
-    await p.keyboard.type('first');
-    await p.keyboard.press('Enter');
-    await until(p, '.pin.ink');
     const q1 = await drawn(p, [[[c11.l, c11.b + 3], [c11.l + 150, c11.b + 4]]]);
-    await p.keyboard.type('second');
-    await p.keyboard.press('Enter');
     await sleep(700);
     const quick = await inks('quick');
     const quickText = await L.agent('quick');
-    check(eng, 'two drawings in a row (the second drawn while the first\'s undo card is up): both are saved, each with its own lines and words', quick.length === 2 && q1.box && /first/.test(quickText) && /second/.test(quickText) && /drawn: (circled|box)/.test(quickText) && /drawn: underlined/.test(quickText), `${quick.length} drawings: ${quick.map((x) => `${x.text} = ${x.anchor.ink.mark}`).join('; ')}`);
+    check(eng, 'two drawings in a row (the second drawn while the first\'s undo card is up): both are saved, each with its own lines', quick.length === 2 && q1.sent && /drawn: (circled|box)/.test(quickText) && /drawn: underlined/.test(quickText), `${quick.length} drawings: ${quick.map((x) => `${x.text} = ${x.anchor.ink.mark}`).join('; ')}`);
 
-    // 12. A drawing let go with Escape, and another drawn at once: only the new one's lines.
-    await go(p, L.B, 'quick2');
-    const a12 = await box(p, 'a');
-    const c12 = await box(p, 'c');
-    await drawn(p, [ring(a12.l + 60, a12.cy, 70, 26)]);
-    await p.keyboard.press('Escape');
-    const q2 = await drawn(p, [ring(c12.l + 60, c12.cy, 70, 26)]);
-    check(eng, 'a drawing dropped with Escape, the next drawn at once: one draft, the new one, none of the old lines', q2.box && q2.draftInk === 1 && q2.draftStrokes === 1 && q2.draftAt.t > a12.b && q2.live === 0, short(q2.draftAt));
-    await p.keyboard.press('Escape');
-
-    // 13. A reload with a drawing not sent yet, some words typed.
+    // 12. A reload right after a drawing: it was sent, and is drawn once, with nothing stray.
     await go(p, L.B, 'reload');
     const a13 = await box(p, 'a');
-    const r0 = await drawn(p, [ring(a13.l + 60, a13.cy, 70, 26)]);
-    await p.keyboard.type('half a thought');
-    await sleep(500);
+    await drawn(p, [ring(a13.l + 60, a13.cy, 70, 26)]);
     await go(p, L.B, 'reload');
-    await until(p, '.float textarea', 3000);
-    const r1 = await look(p);
-    check(eng, 'a reload with an unsent drawing and words typed: the box is back with the words and the lines, where they were', r1.box && r1.typed === 'half a thought' && r1.draftInk === 1 && r1.zone === 0 && Math.abs(r1.draftAt.l - r0.draftAt.l) < 4 && Math.abs(r1.draftAt.t - r0.draftAt.t) < 4, short({ before: r0.draftAt, after: r1.draftAt, typed: r1.typed, draftInk: r1.draftInk, zone: r1.zone, draftPin: r1.draftPin }));
-    if (r1.box) {
-      await p.locator('.float textarea').focus().catch(() => {});
-      await p.keyboard.press('End');
-      await send(p, ' sent');
-    }
-    const reText = await L.agent('reload');
-    check(eng, 'sent after the reload it is still a drawing for the agent: circled, with its lines and the words in it', /type: drawing/.test(reText) && /drawn: (circled|box)/.test(reText) && /lines \(px/.test(reText) && /Plans/.test(reText) && /half a thought/.test(reText), said(reText));
-
-    // 14. The same with nothing typed yet.
-    await go(p, L.B, 'reload2');
-    const a14 = await box(p, 'a');
-    await drawn(p, [ring(a14.l + 60, a14.cy, 70, 26)]);
-    await sleep(500);
-    await go(p, L.B, 'reload2');
     await sleep(900);
-    const r2 = await look(p);
-    note(eng, 'a reload with an unsent drawing and nothing typed', r2.box ? `the box and ${r2.draftInk} drawing come back` : 'the drawing is gone (a draft with no words is not kept, as with any pin)');
-    check(eng, 'a reload with an unsent drawing and nothing typed leaves no stray lines or pins behind', r2.live === 0 && r2.inkPins === 0 && (r2.box ? r2.draftInk === 1 : r2.draftInk === 0), short({ box: r2.box, draftInk: r2.draftInk, live: r2.live }));
+    const r1 = await look(p);
+    const reText = await L.agent('reload');
+    check(eng, 'a reload right after a drawing: it is kept and drawn once, no box, no stray lines', r1.inkPins === 1 && !r1.box && r1.live === 0 && r1.draftInk === 0, short({ inkPins: r1.inkPins, box: r1.box, live: r1.live, draftInk: r1.draftInk }));
+    check(eng, 'it is a drawing for the agent: circled, with its lines and the words in it', /type: drawing/.test(reText) && /drawn: (circled|box)/.test(reText) && /lines \(px/.test(reText) && /Plans/.test(reText), said(reText));
   });
 } finally {
   L.stop();

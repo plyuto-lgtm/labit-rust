@@ -131,6 +131,8 @@ try {
         await ctx.addInitScript(() => {
           localStorage.setItem('lab-name', 'leo');
           localStorage.setItem('lab-on', '1');
+          // full height (boards open at half now): the view is held to the whole window, and its frame is loaded as on the calm page
+          localStorage.setItem(`lab-board-size:${location.pathname.replace(/\.html$/, '')}`, '1');
         });
         const view = async (name) => {
           const p = await ctx.newPage();

@@ -3,7 +3,7 @@
 import fs from 'node:fs';
 import path from 'node:path';
 import { claimPort } from './port.mjs';
-import { playwright, engines, tmp, labEnv, startLab, labUp, sleep, check, finish } from './harness.mjs';
+import { playwright, engines, tmp, labEnv, startLab, labUp, sleep, check, finish, withAlt } from './harness.mjs';
 import { png } from '../pictures.mjs';
 
 const pw = playwright();
@@ -63,7 +63,7 @@ try {
 
       // a pin on the picture is an ordinary board pin
       const r = await rect('c'); // on top of the frames it was pasted over
-      await p.mouse.click(r.x + r.w / 2, r.y + r.h / 2);
+      await withAlt(p, () => p.mouse.click(r.x + r.w / 2, r.y + r.h / 2));
       await p.waitForFunction(() => [...document.querySelectorAll('*')].some((n) => n.shadowRoot?.querySelector('textarea')), null, { timeout: 4000 }).catch(() => {});
       const area = p.locator('textarea').first();
       check(eng, 'a click on the picture opens the comment box', await area.count() > 0);
@@ -136,11 +136,13 @@ try {
       await p.mouse.move(5, 5);
       const rc = await rect('c');
       // (the part of c the pictures pasted over it, d and e, do not cover: 72%–83% across, 60%–72% down)
-      await p.mouse.move(rc.x + rc.w * 0.72, rc.y + rc.h * 0.6);
-      await p.mouse.down();
-      await p.mouse.move(rc.x + rc.w * 0.78, rc.y + rc.h * 0.66, { steps: 6 });
-      await p.mouse.move(rc.x + rc.w * 0.83, rc.y + rc.h * 0.72, { steps: 6 });
-      await p.mouse.up();
+      await withAlt(p, async () => {
+        await p.mouse.move(rc.x + rc.w * 0.72, rc.y + rc.h * 0.6);
+        await p.mouse.down();
+        await p.mouse.move(rc.x + rc.w * 0.78, rc.y + rc.h * 0.66, { steps: 6 });
+        await p.mouse.move(rc.x + rc.w * 0.83, rc.y + rc.h * 0.72, { steps: 6 });
+        await p.mouse.up();
+      });
       await until(async () => (await p.locator('textarea').count()) > 0);
       await p.keyboard.type('this part');
       await p.keyboard.press('Enter');
@@ -158,35 +160,41 @@ try {
       await p.keyboard.press('Shift+Digit1'); // fit all
       await sleep(600);
       const rbn = await rect(banner.id);
-      await p.mouse.click(rbn.x + rbn.w / 2, rbn.y + 3); // on the bar above the picture
+      await withAlt(p, () => p.mouse.click(rbn.x + rbn.w / 2, rbn.y + 3)); // on the bar above the picture
       await until(async () => (await p.locator('textarea').count()) > 0);
       await p.keyboard.type('bar');
       await p.keyboard.press('Enter');
       let onbar;
       for (let i = 0; i < 30 && !onbar; i++) { await sleep(150); onbar = (await (await fetch(`${B}/_lab/api/comments?page=/_board/${name}`)).json()).comments?.find((x) => x.text === 'bar'); }
       check(eng, 'a pin on the bar above the picture is held to its top edge (0% down) and halfway across', Boolean(onbar) && onbar.anchor.frame === banner.id && onbar.anchor.imgY === 0 && Math.abs(onbar.anchor.imgX - 0.5) < 0.03, JSON.stringify(onbar?.anchor));
-      // a picture off the board and back (e, the last pasted, lies on top): Backspace with the pointer on it, ⌘Z, the × over its corner
+      // a picture off the board and back (e, the last pasted, lies on top): a click picks it (its ring), Backspace takes it
+      // off, ⌘Z puts it back; no × over its corner (Leo, 21 Nov: "no need this on board > select and delete")
       await p.keyboard.press('Escape');
       await p.keyboard.press('Shift+Digit1');
       await sleep(700);
       const bBefore = (await frames(name)).find((f) => f.id === 'e');
       const rb3 = await rect('e');
-      await p.mouse.move(rb3.x + rb3.w / 2, rb3.y + rb3.h / 2);
+      check(eng, 'no × on a picture', await p.locator('.f .rm').count() === 0);
+      await p.mouse.click(rb3.x + rb3.w / 2, rb3.y + rb3.h / 2);
       await sleep(250);
+      check(eng, 'a click picks the picture: its ring', await p.locator('.f[data-id="e"].pick').count() === 1);
       await p.keyboard.press('Backspace');
-      check(eng, 'Backspace with the pointer on a picture takes it off the board (archived)', Boolean(await until(async () => (await frames(name)).find((f) => f.id === 'e')?.state === 'archived')));
+      check(eng, 'Backspace on a picked picture takes it off the board (archived)', Boolean(await until(async () => (await frames(name)).find((f) => f.id === 'e')?.state === 'archived')));
       check(eng, 'the picture is gone from the board, its file kept', Boolean(await until(async () => (await rect('e')) == null)) && (await fetch(`${B}/_lab/board/${name}/e`)).status === 200);
       check(eng, 'the agent reads the frame as archived', /\ne {2}pasted image [^\n]*archived/.test(await (await fetch(`${B}/_lab/agent/_board/${name}`)).text()));
       await p.keyboard.press('Control+z');
       const back = await until(async () => { const f = (await frames(name)).find((g) => g.id === 'e'); return f?.state === 'live' ? f : null; });
       check(eng, '⌘Z puts it back, in the same place', Boolean(back) && back.x === bBefore.x && back.y === bBefore.y && Boolean(await until(async () => (await rect('e')) != null)), JSON.stringify([bBefore, back]));
+      // with nothing picked, Backspace takes nothing off
       await p.keyboard.press('Shift+Digit1');
       await sleep(600);
       const rc2 = await rect('d');
-      await p.mouse.move(rc2.x + rc2.w / 2, rc2.y + rc2.h / 2);
+      await p.mouse.click(rc2.x + rc2.w / 2, rc2.y - 200 > 0 ? rc2.y - 200 : 5); // the canvas: nothing picked
       await sleep(250);
-      await p.locator('.f[data-id="d"] .rm').click({ force: true });
-      check(eng, 'the × over a picture takes it off too', Boolean(await until(async () => (await frames(name)).find((f) => f.id === 'd')?.state === 'archived')));
+      await p.mouse.move(rc2.x + rc2.w / 2, rc2.y + rc2.h / 2);
+      await p.keyboard.press('Backspace');
+      await sleep(600);
+      check(eng, 'Backspace with nothing picked takes nothing off', (await frames(name)).find((f) => f.id === 'd')?.state !== 'archived');
     } finally {
       await browser.close();
     }

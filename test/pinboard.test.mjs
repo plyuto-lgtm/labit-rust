@@ -40,18 +40,17 @@ test('the card makes the pin its board: about the page at the pin, opened over t
   assert.deepEqual(out.board.frames.map((f) => f.src), ['/pricing']);
 });
 
-test('with only the page on it, the pin says nothing of a board', async () => {
-  assert.doesNotMatch(await agentText(), /board for this pin/);
+test('with only the page on it, the page says nothing of a board', async () => {
+  assert.doesNotMatch(await agentText(), /board in the page/);
 });
 
-test('what is put on it is said under the pin, the page itself left out', async () => {
+test('what is put on it is said with the page, the page itself left out', async () => {
   const add = await post({ action: 'add', name, target: '/cart', label: 'like this' }, { 'x-lab-admin': keys().agent, 'x-lab-agent': '1' });
   assert.equal(add.status, 200);
   const t = await agentText();
-  const pin = t.split('\n## ').find((b) => b.split('\n')[0].endsWith(`· id ${ID}`));
-  assert.match(pin, new RegExp(`^comment: make the hero like these\\nboard for this pin: ${B}/pricing#board=${name} `, 'm'));
-  assert.match(pin, /^ {2}frame b: page \/cart "like this"$/m);
-  assert.doesNotMatch(pin, /frame a:/);
+  assert.match(t, new RegExp(`^board in the page: <lab-board name="${name}"> \\(`, 'm'));
+  assert.match(t, /^ {2}frame b: page \/cart "like this"$/m);
+  assert.doesNotMatch(t, /^ {2}frame a:/m);
 });
 
 test('asked again, it is the same board, not a new one over it', async () => {
@@ -68,18 +67,6 @@ test('a guest or a page without the key cannot make one', async () => {
 test('the lab\'s list of boards leaves the pin\'s own out', async () => {
   const pages = await (await fetch(`${B}/_lab/pages`)).json();
   assert.deepEqual(pages.boards, []);
-});
-
-test('a pin sent with +board waits for its board to close before the agent gets it', async () => {
-  const pending = async () => (await (await fetch(`${B}/_lab/pending`, { headers: { 'x-lab-admin': keys().agent, 'x-lab-agent': '1' } })).json()).fresh;
-  const before = await pending();
-  const r = await fetch(`${B}/_lab/api/comments`, { method: 'POST', headers: { 'content-type': 'application/json', origin: B, 'x-lab-admin': keys().token }, body: JSON.stringify({ page: '/pricing', name: 'Leo', text: '+board', anchor: { kind: 'element', selector: 'h1', x: 0.5, y: 0.5, act: '+board: the person put references for this pin on its board' } }) });
-  assert.equal(r.status, 201);
-  const { comment } = await r.json();
-  assert.equal(await pending(), before, 'held while its board is open');
-  assert.equal((await post({ action: 'ready', name: `pin-${comment.id}` }, {})).status, 403, 'only this computer closes it');
-  assert.equal((await post({ action: 'ready', name: `pin-${comment.id}` }, { 'x-lab-admin': keys().token })).status, 200);
-  assert.equal(await pending(), before + 1, 'the agent gets it once the board is closed');
 });
 
 // The pin's board as a section of the page (+board): <lab-board name> written into the page's file after the element.
