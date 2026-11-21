@@ -64,6 +64,9 @@ Run as npx @leonidstern/labit …, or node local.mjs … from a clone. Agents: l
       pages travel in the clear. On a running lab it restarts in place; --no-wifi turns it off.
       A folder a lab already serves opens in that lab; --new starts a separate one.
       --name: the lab's topic, shown in ⌘K instead of the folder.
+  labit --native [--name "app"] [--port 4436]
+      A lab for an app that draws its own window (GPUI, SwiftUI): no dev server, no HTML. The app posts its pins
+      over HTTP (docs/native.md); pages are the ones with pins (/app). The agent answers as on any lab.
   labit publish <page.html | folder> [--name "topic"]
       Show a page like an Artifact: it goes into your one pages lab (pagesFolder, ~/lab-pages); publish again
       to update, same link. --dev: for working on labit itself (restarts when local.mjs or lib/ change).
@@ -209,7 +212,10 @@ if (pos[0] && !fs.existsSync(pos[0])) die(`No folder ${pos[0]}. Run ${CMD} in yo
 // A folder that is a file, a port that is none (abc, 70000, 1.5) and a dev server address that is none, from a flag,
 // PORT or labit.json: each is said in a line. They were Node's own errors, with a stack trace.
 if (pos[0] && !fs.statSync(pos[0]).isDirectory()) die(`${pos[0]} is a file, not a folder. Run ${CMD} in your project, or name a folder (see --help)`);
-const askedPort = Number(opts.port || process.env.PORT || 4400);
+// --native: a lab for an app that draws its own window and posts its pins itself (docs/native.md): no dev server, no HTML folder.
+const NATIVE = Boolean(opts.native);
+const DEFAULT_PORT = NATIVE ? 4436 : 4400;
+const askedPort = Number(opts.port || process.env.PORT || DEFAULT_PORT);
 if (!Number.isInteger(askedPort) || askedPort < 0 || askedPort > 65535) die(`[lab] ${opts.port || process.env.PORT} is not a port: give a number from 1 to 65535 (--port, PORT, or "port" in labit.json)`);
 const proxyUrl = (p) => (/^\d+$/.test(p) ? `http://localhost:${p}` : p);
 if (typeof opts.proxy === 'string' && opts.proxy && !URL.canParse(proxyUrl(opts.proxy))) die(`[lab] ${opts.proxy} is not a dev server's address: give its port (--proxy 3000) or its URL (--proxy http://localhost:3000)`);
@@ -295,7 +301,7 @@ const DEV_SERVERS = /^(vite|@vitejs\/.+|webpack-dev-server|next|astro|nuxt|@svel
 // without the framework (every Vite project has one, webpack has its template). It is a dev-server project when
 // package.json has a dev script or names a framework's dev server; one that is running is gone in front of, pages or no pages.
 // A project with pages, a dev server that isn't running and a lab started without it is served as pages, and says so.
-if (!opts.proxy && !alreadyRunning) {
+if (!opts.proxy && !alreadyRunning && !NATIVE) {
   const hasPage = (dir, depth = 0) =>
     fs.readdirSync(dir, { withFileTypes: true }).some((d) => {
       if (d.name.startsWith('.') || d.name === 'node_modules') return false;
@@ -634,6 +640,7 @@ const fileFor = (page) => {
     fileMemoAt = Date.now();
   }
   if (page.startsWith('/_board/')) return boardFile(page); // a board's own files: never kept (they are made while the lab runs)
+  if (NATIVE) return null; // an app's pages have no file
   if (!fileMemo.has(page)) fileMemo.set(page, findFile(page));
   return fileMemo.get(page);
 };
@@ -667,7 +674,7 @@ const fidOf = (rel) => {
 };
 function rehome() {
   let byFid = null;
-  for (const page of PROXY ? [] : new Set([...pages(), ...Object.values(sections).flatMap(Object.keys)])) {
+  for (const page of NOFILES ? [] : new Set([...pages(), ...Object.values(sections).flatMap(Object.keys)])) {
     const [was, fid] = homes.get(page) || [];
     const rel = fileIndex.get(page);
     if (rel) {
@@ -924,7 +931,7 @@ const pageChanged = (p) => {
 // A page's file is noted when it first has comments, not only when the file list is built: a page commented later
 // is followed by its comments file (file and fid, written with it) when the file is renamed, running or stopped.
 const noteHome = (p) => {
-  if (PROXY || homes.has(p) || p.startsWith('/_board/') || !db.get(`lab:comments:${p}`)?.size) return;
+  if (NOFILES || homes.has(p) || p.startsWith('/_board/') || !db.get(`lab:comments:${p}`)?.size) return;
   const rel = fileFor(p);
   const fid = rel && fidOf(rel);
   if (fid) homes.set(p, [rel, fid]);
@@ -1065,6 +1072,8 @@ setInterval(() => {
 // comments), only this computer gets the admin key. Wifi guests can read the folder's pages and comment.
 const WIFI = Boolean(opts.wifi);
 const PROXY = opts.proxy ? new URL(proxyUrl(opts.proxy)) : null;
+// No page files of its own to read (a dev server's pages, or an app's): pages are the ones with pins.
+const NOFILES = Boolean(PROXY) || NATIVE;
 const wifiAddrs = () => Object.values(os.networkInterfaces()).flat().filter((a) => a && a.family === 'IPv4' && !a.internal).map((a) => a.address);
 const hostName = os.hostname().replace(/\.local$/, '').toLowerCase();
 const allowedHost = (h = '') => {
@@ -1456,8 +1465,8 @@ const fileSaved = (file) => {
     // once. A person saving by hand gets it after 80 ms.
   }, mode === 'working' ? 400 : 80);
 };
-if (!PROXY) linksOf();
-if (!PROXY) watchTree(ROOT, (event, file) => {
+if (!NOFILES) linksOf();
+if (!NOFILES) watchTree(ROOT, (event, file) => {
   try {
     if (fs.lstatSync(path.join(ROOT, file)).isSymbolicLink()) links = null; // a new link: found again at the next look
   } catch {}
@@ -1502,7 +1511,7 @@ const boardGet = (name) => {
 const boardPage = (p) => (p === '/' ? '/index' : p.replace(/\.html?$/i, '').replace(/\/$/, ''));
 const boardHome = (b) => {
   const k = b?.of && boardPage(b.of.split(/[?#]/)[0]);
-  return k && (PROXY || fileFor(k)) ? k : null;
+  return k && (NOFILES || fileFor(k)) ? k : null;
 };
 function gather(b) {
   const to = boardHome(b);
@@ -1670,7 +1679,7 @@ const boardTold = new Map(); // session + board -> the frames text it was given 
 async function threadsText(page, threads, who = '') {
   const text = await agentText(page);
   const [frames, rest] = text.startsWith('# Board') ? text.split(/\n(?=# Comments)/) : ['', text];
-  let head = rest.split('\n## ')[0].split('\n').filter((l) => /^(page|file|frame|picked|Missing files):/.test(l) || l.startsWith(ERRORS_HEAD)).join('\n');
+  let head = rest.split('\n## ')[0].split('\n').filter((l) => /^(page|file|frame|picked|Missing files):|^Drawn by GPUI/.test(l) || l.startsWith(ERRORS_HEAD)).join('\n');
   if (frames && boardTold.get(`${who}\n${page}`) !== frames) {
     boardTold.set(`${who}\n${page}`, frames);
     head = `${frames.trim()}\n${head}`;
@@ -2239,10 +2248,10 @@ const labInfo = () => {
       return null;
     }
   };
-  const list = (PROXY ? [] : pagesUnder(ROOT)).map((rel) => ({ url: origin + urlOf(rel), title: titleOf(path.join(ROOT, rel)), file: rel, key: keyFor(rel) }));
+  const list = (NOFILES ? [] : pagesUnder(ROOT)).map((rel) => ({ url: origin + urlOf(rel), title: titleOf(path.join(ROOT, rel)), file: rel, key: keyFor(rel) }));
   if (PROXY) list.push({ url: origin + '/', title: '', file: '', key: '/' });
   // A dev server's pages: the ones with comments. Pages without a file (moved or deleted) keep their pins but aren't offered: going there would find nothing.
-  if (PROXY) for (const key of pages()) if (!key.startsWith('/_board/') && !list.some((p) => p.key === key)) list.push({ url: origin + key, title: '', file: fileFor(key) || '', key });
+  if (NOFILES) for (const key of pages()) if (!key.startsWith('/_board/') && !list.some((p) => p.key === key)) list.push({ url: origin + key, title: '', file: fileFor(key) || '', key });
   return {
     name: LAB_NAME, root: ROOT, port: PORT, wifi: WIFI, proxy: PROXY?.origin || null, browser: openTabs() > 0, mode: session ? mode : 'away', listening: session?.name || null, heard: heard(),
     started: STARTED,
@@ -2979,7 +2988,7 @@ server.on('upgrade', (req, socket, head) => {
 server.on('error', (e) => {
   // A port given by the preview pane (PORT) is the one it opens: don't move off it.
   const fixed = !opts.port && process.env.PORT;
-  if (/** @type {NodeJS.ErrnoException} */ (e).code !== 'EADDRINUSE' || fixed || PORT >= Number(opts.port || 4400) + 20) die(`[lab] could not start: ${e.message}`);
+  if (/** @type {NodeJS.ErrnoException} */ (e).code !== 'EADDRINUSE' || fixed || PORT >= Number(opts.port || DEFAULT_PORT) + 20) die(`[lab] could not start: ${e.message}`);
   PORT = skipLabs(PORT + 1);
   server.listen(PORT, WIFI ? undefined : '127.0.0.1');
 });
@@ -3037,19 +3046,19 @@ server.on('listening', async () => {
   } catch {}
   register();
   await persist();
-  console.log(`[lab] ${origin}  ·  labit ${VERSION}  ·  ${PROXY ? `pages from the dev server at ${PROXY.origin}, comments in` : 'pages from'} ${ROOT}`);
+  console.log(`[lab] ${origin}  ·  labit ${VERSION}  ·  ${PROXY ? `pages from the dev server at ${PROXY.origin}, comments in` : NATIVE ? 'for an app that posts its own pins (docs/native.md), comments in' : 'pages from'} ${ROOT}`);
   console.log(WIFI ? `[lab] other devices on this wifi need a one-time link: run \`${CMD} invite\`, or ask Claude for one`
     : `[lab] only this computer can open it (\`${CMD} invite\` lets a phone on the same wifi in)`);
   console.log(`[lab] your agent: run \`${CMD} wait\` in the background from ${ROOT}; it ends with the next comment.`);
   console.log(`[lab] agents without the labit plugin or skill: read \`${CMD} skill\` once, for how to answer pins.`);
   // Open a page, not a list of folders: the project's main page when there's no index.html at the top.
-  const first = !PROXY && !fs.existsSync(path.join(ROOT, 'index.html')) ? pagesUnder(ROOT)[0] : null;
+  const first = !NOFILES && !fs.existsSync(path.join(ROOT, 'index.html')) ? pagesUnder(ROOT)[0] : null;
   const start = first ? urlOf(first) : '/';
   if (first) console.log(`[lab] opening ${first} (no index.html at the top; ${origin}/ lists every page)`);
   // Started a folder too high, or in the wrong one: the page says so, but nobody has opened it yet.
-  else if (!PROXY && !pagesUnder(ROOT).length)
+  else if (!NOFILES && !pagesUnder(ROOT).length)
     console.log(`[lab] no HTML pages in ${ROOT} — nothing to comment on yet. Name the folder that has them (${CMD} dist), or start your dev server and run this again.`);
-  if (!opts['no-open']) spawn(process.platform === 'darwin' ? 'open' : 'xdg-open', [origin + start], { stdio: 'ignore', detached: true }).on('error', () => {}).unref();
+  if (!opts['no-open'] && !NATIVE) spawn(process.platform === 'darwin' ? 'open' : 'xdg-open', [origin + start], { stdio: 'ignore', detached: true }).on('error', () => {}).unref();
 });
 // Parked: a record of how it was started (in ~/.labit/parked), so the switcher (⌘K) in another lab, or labit run in
 // its folder again, starts it the same way.

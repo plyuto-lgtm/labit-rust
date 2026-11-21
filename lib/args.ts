@@ -11,7 +11,7 @@ export function listenPages(opts: Opts, forWait = false): string[] | null {
 }
 // One list of flags for every command: anything else starting with -- is refused, so a typo
 // (`reply abc "Done" --resolv`) stops instead of landing in the reply's text. After a bare --, all is words.
-const SWITCHES = ['--wifi', '--no-wifi', '--no-open', '--resolve', '--wait', '--new', '--all', '--bg', '--dev', '--fast', '--no-fast', '--done', '--on-it', '--question', '--first', '--no-check'];
+const SWITCHES = ['--wifi', '--no-wifi', '--no-open', '--resolve', '--wait', '--new', '--all', '--bg', '--dev', '--fast', '--no-fast', '--done', '--on-it', '--question', '--first', '--no-check', '--native'];
 /** What an agent's reply is, from its flag (reply --done / --on-it / --question): the thread's state is read from it.
  *  undefined when none is given; an error when more than one is. */
 export function replyIntent(opts: Opts): 'done' | 'working' | 'question' | undefined | Error {
