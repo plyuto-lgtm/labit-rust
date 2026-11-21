@@ -96,7 +96,7 @@ jobs:
           # listed in the file as known).
           - { name: b, files: selection sections board boardarrange boardreload reloadstate morphstate hotrace anchoring-torture lazyparts }
           # The "!" on the labit mark for a held reload (updbadge); undo; moments; native; motion; actions; shortcuts from labit.json; status updates folding (fold); where a thread or the chat opens and stays (openscroll); a phone sheet keeping the page still (sheetpan); a card scrolling off the screen with its pin (cardscroll); a card with the cursor in its reply box following the page (cardfollows).
-          - { name: c, files: quickrow phonebox agentpins progress fold openscroll sheetpan cardscroll cardfollows shortcuts boardmode boardpins boardview boardhalf boardhome boardimage links actions draw motionreach updbadge update undo moment nativepins native nativeboard sidepins pageerrors pincontext }
+          - { name: c, files: quickrow phonebox agentpins progress fold openscroll sheetpan cardscroll cardfollows shortcuts boardmode boardpins boardview boardhalf boardhome boardimage links actions draw motionreach updbadge update undo moment nativepins native nativeboard sidepins pageerrors pincontext gpui }
     name: browser (${{ matrix.engine }}, ${{ matrix.group.name }})
     # The Mac keeps Playwright's browsers in ~/Library/Caches/ms-playwright (chromium 1255, webkit 2388 for 1.65.1),
     # so nothing is downloaded per run.
